@@ -1145,6 +1145,7 @@ dependencies = [
  "curv-kzen",
  "kzen-paillier",
  "multi-party-ecdsa",
+ "serde",
  "sha2 0.9.9",
 ]
 
