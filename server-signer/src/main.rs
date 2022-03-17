@@ -1,14 +1,21 @@
 mod key_gen;
 mod sign;
-
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
+enum MessageType {
+    GenerateKey,
+    RegenerateKey,
+    InitSign,
+    Sign,
+    Abort,
+}
+
 fn process_request(response_buf: &mut [u8], request_buf: &[u8], request_len: usize) -> usize {
     let _json: Value = match serde_json::from_slice(&request_buf[..request_len]) {
         Ok(json) => json,
-        Err(e) => {
+        Err(_e) => {
             let response = b"Error\n";
             response_buf[..response.len()].copy_from_slice(response);
             return response.len();
@@ -28,7 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::spawn(async move {
             let mut request_buf = [0; 1024];
-
             loop {
                 // Read an incoming request
                 let request_len = match socket.read(&mut request_buf).await {
