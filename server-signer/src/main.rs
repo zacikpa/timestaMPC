@@ -1,10 +1,11 @@
 mod key_gen;
 mod sign;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-enum MessageType {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum RequestType {
     GenerateKey,
     RegenerateKey,
     InitSign,
@@ -12,9 +13,30 @@ enum MessageType {
     Abort,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Request {
+    request_type: RequestType,
+    data: Vec<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum ResponseType {
+    GenerateKey,
+    RegenerateKey,
+    InitSign,
+    Sign,
+    Abort,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Response {
+    response_type: ResponseType,
+    data: Vec<Vec<u8>>,
+}
+
 fn process_request(response_buf: &mut [u8], request_buf: &[u8], request_len: usize) -> usize {
-    let _json: Value = match serde_json::from_slice(&request_buf[..request_len]) {
-        Ok(json) => json,
+    let _request: Request = match serde_json::from_slice(&request_buf[..request_len]) {
+        Ok(request) => request,
         Err(_e) => {
             let response = b"Error\n";
             response_buf[..response.len()].copy_from_slice(response);
