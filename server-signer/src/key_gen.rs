@@ -11,7 +11,7 @@ use paillier::EncryptionKey;
 use sha2::Sha256;
 use serde::{Serialize, Deserialize};
 
-
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext1 {
     threshold: u16,
     parties: u16,
@@ -23,6 +23,7 @@ pub struct GG18KeyGenContext1 {
 
 pub type GG18KeyGenMsg1 = KeyGenBroadcastMessage1;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext2 {
     threshold: u16,
     parties: u16,
@@ -35,6 +36,7 @@ pub struct GG18KeyGenContext2 {
 
 pub type GG18KeyGenMsg2 = KeyGenDecommitMessage1;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext3 {
     threshold: u16,
     parties: u16,
@@ -49,6 +51,7 @@ pub struct GG18KeyGenContext3 {
 
 pub type GG18KeyGenMsg3 = Scalar<Secp256k1>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext4 {
     threshold: u16,
     parties: u16,
@@ -63,6 +66,7 @@ pub struct GG18KeyGenContext4 {
 
 pub type GG18KeyGenMsg4 = VerifiableSS<Secp256k1>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext5 {
     threshold: u16,
     parties: u16,

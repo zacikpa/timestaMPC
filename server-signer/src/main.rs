@@ -1,8 +1,12 @@
 mod key_gen;
 mod sign;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use std::net::TcpListener;
+use std::io::{Write, Read};
+use crate::key_gen::{GG18KeyGenContext1, GG18KeyGenContext2, GG18KeyGenContext3, GG18KeyGenContext4,
+    GG18KeyGenContext5};
+use crate::sign::{GG18SignContext1, GG18SignContext2, GG18SignContext3, GG18SignContext4,
+    GG18SignContext5, GG18SignContext6, GG18SignContext7, GG18SignContext8, GG18SignContext9};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum RequestType {
@@ -34,50 +38,65 @@ pub struct Response {
     data: Vec<Vec<u8>>,
 }
 
-fn process_request(response_buf: &mut [u8], request_buf: &[u8], request_len: usize) -> usize {
-    let _request: Request = match serde_json::from_slice(&request_buf[..request_len]) {
-        Ok(request) => request,
-        Err(_e) => {
-            let response = b"Error\n";
-            response_buf[..response.len()].copy_from_slice(response);
-            return response.len();
-        }
-    };
-    let response = b"Ok\n";
-    response_buf[..response.len()].copy_from_slice(response);
-    return response.len();
+#[derive(Clone, Debug)]
+enum Context {
+    Empty,
+    GenContext1(GG18KeyGenContext1),
+    GenContext2(GG18KeyGenContext2),
+    GenContext3(GG18KeyGenContext3),
+    GenContext4(GG18KeyGenContext4),
+    GenContext5(GG18KeyGenContext5),
+    SignContext1(GG18SignContext1),
+    SignContext2(GG18SignContext2),
+    SignContext3(GG18SignContext3),
+    SignContext4(GG18SignContext4),
+    SignContext5(GG18SignContext5),
+    SignContext6(GG18SignContext6),
+    SignContext7(GG18SignContext7),
+    SignContext8(GG18SignContext8),
+    SignContext9(GG18SignContext9),
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Response) {
+    let _request: Request = match serde_json::from_slice(&request_buf) {
+        Ok(request) => request,
+        Err(_e) => {
+            return (Context::Empty, Response{
+                            response_type: ResponseType::Abort,
+                            data: Vec::new()});
+        }
+    };
+    match context {
+    _ => {let response = b"Ok\n";
+            return (Context::Empty, Response{
+                    response_type: ResponseType::Abort,
+                    data: vec![response.to_vec()]});}
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+
+    let mut context = Context::Empty;
 
     loop {
-        let (mut socket, _) = listener.accept().await?;
+        let (mut socket, _) = listener.accept().unwrap();
 
-        tokio::spawn(async move {
-            let mut request_buf = [0; 1024];
+            let mut request_buf = Vec::new();
             loop {
                 // Read an incoming request
-                let request_len = match socket.read(&mut request_buf).await {
-                    Ok(request_len) if request_len == 0 => return,
-                    Ok(request_len) => request_len,
-                    Err(e) => {
-                        eprintln!("failed to read from socket; err = {:?}", e);
-                        return;
-                    }
-                };
+                let _ = socket.read(&mut request_buf);
 
                 // Process the request and generate a response
-                let mut response_buf = [0; 1024];
-                let response_len = process_request(&mut response_buf, &request_buf, request_len);
-
+                let response = process_request(&context, request_buf.to_vec());
+                context = response.0;
                 // Write back the response
-                if let Err(e) = socket.write_all(&response_buf[0..response_len]).await {
+                let e = socket.write_all(&serde_json::to_vec(&response.1).unwrap());
+                if e.is_err() {
                     eprintln!("failed to write to socket; err = {:?}", e);
-                    return;
+                    break;
                 }
-            }
-        });
+
+        }
     }
 }

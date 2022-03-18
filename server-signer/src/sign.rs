@@ -17,6 +17,7 @@ use multi_party_ecdsa::utilities::mta::*;
 use sha2::Sha256;
 use crate::key_gen::GG18SignContext;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext1 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -35,6 +36,7 @@ pub struct GG18SignContext1 {
 
 pub type GG18SignMsg1 = (SignBroadcastPhase1, MessageA);
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext2 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -54,6 +56,7 @@ pub struct GG18SignContext2 {
 
 pub type GG18SignMsg2 = (MessageB, MessageB);
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext3 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -71,6 +74,7 @@ pub struct GG18SignContext3 {
 
 pub type GG18SignMsg3 = Scalar<Secp256k1>;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext4 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -88,6 +92,7 @@ pub struct GG18SignContext4 {
 
 pub type GG18SignMsg4 = SignDecommitPhase1;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext5 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -103,6 +108,7 @@ pub struct GG18SignContext5 {
 
 pub type GG18SignMsg5 = Phase5Com1;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext6 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -118,6 +124,7 @@ pub struct GG18SignContext6 {
 
 pub type GG18SignMsg6 = (Phase5ADecom1, HomoELGamalProof<Secp256k1, Sha256>, DLogProof<Secp256k1, Sha256>);
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext7 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -133,6 +140,7 @@ pub struct GG18SignContext7 {
 
 pub type GG18SignMsg7 = Phase5Com2;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext8 {
     indices: Vec<u16>,
     threshold_index: usize,
@@ -148,6 +156,7 @@ pub struct GG18SignContext8 {
 
 pub type GG18SignMsg8 = Phase5DDecom2;
 
+#[derive(Clone, Debug)]
 pub struct GG18SignContext9 {
     threshold: u16,
     local_sig: LocalSignature
