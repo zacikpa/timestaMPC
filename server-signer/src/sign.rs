@@ -164,7 +164,7 @@ pub struct GG18SignContext9 {
 
 pub type GG18SignMsg9 = Scalar<Secp256k1>;
 
-pub fn gg18_sign1(context: GG18SignContext, indices: Vec<u16>, threshold_index: usize, message_hash: Vec<u8>)
+pub fn gg18_sign1(context: GG18SignContext, indices: Vec<u16>, message_hash: Vec<u8>)
 -> Result<(GG18SignMsg1, GG18SignContext1), &'static str> {
 
     let private = PartyPrivate::set_private(context.party_keys.clone(), context.shared_keys);
@@ -174,6 +174,8 @@ pub fn gg18_sign1(context: GG18SignContext, indices: Vec<u16>, threshold_index: 
         context.index,
         &indices,
     );
+
+    let threshold_index = indices.iter().position(|x| x == &context.index).unwrap();
 
     let xi_com_vec = Keys::get_commitments_to_xi(&context.vss_scheme_vec);
     let (com, decommit) = sign_keys.phase1_broadcast();
