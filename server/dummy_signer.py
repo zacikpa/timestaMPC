@@ -7,8 +7,7 @@ import random
 from datetime import datetime
 from cryptography.hazmat.primitives import hashes
 
-async def handle_signing(reader, writer):
-    request = None
+async def init_keygen(reader, writer):
     for _ in range(2):
         request = (await reader.read(255)).decode("utf8")
         print(request)
@@ -46,6 +45,46 @@ async def handle_signing(reader, writer):
                 "commitment": [["MESSAGE PBKEY YAAY #" + str(random.randint(1, 100))]]
             }
         }).encode('utf-8'))
+
+async def init_sign(reader, writer):
+    request = (await reader.read(255)).decode("utf8")
+    print(request)
+    writer.write(json.dumps({
+                "message_type": "InitSign",
+                "data": {
+                    "commitment": [["BOY I AM HERE: " + sys.argv[1]]]
+                }
+            }).encode('utf-8'))
+    for i in range(8):
+        request = (await reader.read(255)).decode("utf8")
+        print(request)
+        writer.write(json.dumps({
+                "message_type": "Sign",
+                "data": {
+                    "commitment": [["MESSAGE #" + str(random.randint(1, 100))] for _ in range(3)],
+                    "sign_num": i
+                }
+            }).encode('utf-8'))
+    
+    request = (await reader.read(255)).decode("utf-8")
+    print(request)
+    writer.write(json.dumps({
+            "message_type": "Sign",
+            "data": {
+                "commitment": [["MESSAGE #" + str(random.randint(1, 100))] for _ in range(3)],
+                "sign_num": i,
+                "signature": "boy we are here"
+            }
+        }).encode('utf-8'))
+    
+
+async def handle_signing(reader, writer):
+    await init_keygen(reader, writer)
+    print("KEYGEN INIT SUCCESSFUL")
+    await init_sign(reader, writer)
+    print("SIGNING SUCCESSFUL")
+    
+    
     
 _, port = sys.argv
 
