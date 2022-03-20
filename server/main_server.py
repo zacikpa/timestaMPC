@@ -6,9 +6,15 @@ import json
 from datetime import datetime
 from cryptography.hazmat.primitives import hashes
 
-SIGNERS = [("localhost", 30000 + x) for x in range(3)]
-SIGNER_INSTANCES = [None for _ in range(len(SIGNERS))]
+N_SIGNERS = 3
+K_SIGNERS = 2
 
+SIGNERS = [("localhost", 30000 + x) for x in range(N_SIGNERS)]
+SIGNER_INSTANCES = [None for _ in range(len(SIGNERS))]
+ACTIVE_SIGNERS = []
+
+TASK_QUEUE = asyncio.Queue()
+SIGNATURE_QUEUE = asyncio.Queue()
 
 async def sign_data(data):
     # TODO figure out precision
@@ -17,16 +23,17 @@ async def sign_data(data):
     digest = hashes.Hash(hashes.SHA256())
     digest.update(bytes(data + timestamp, "utf-8"))
     hash_hex = digest.finalize().hex()
-
+    print("GOT HEX:", hash_hex)
     # TODO distribute to clients (hash, timestamp)
-
-    await asyncio.sleep(5)
+    await TASK_QUEUE.put(hash_hex)
+    print("put into queue")
+    signature = await SIGNATURE_QUEUE.get()    
 
     return json.dumps(
         {
             "type": "result",
             "data": "success",
-            "signature": hash_hex,
+            "signature": signature,
             "timestamp": timestamp,
         }
     )
@@ -62,7 +69,7 @@ async def _distribute_copies(writer, messages):
     }).encode('utf-8'))
     await writer.drain()
         
-async def _distribute_p3(recv_messages):
+async def _distribute_p3(recv_messages, instances):
     messages = [[recv_messages[j][i] for j in range(len(recv_messages))] for i in range(len(recv_messages[0]))]
     cleaned = []
     for i in range(len(messages)):
@@ -72,7 +79,7 @@ async def _distribute_p3(recv_messages):
                 continue
             cleaned[-1].append(messages[i][j])
             
-    for index, (_, w) in enumerate(SIGNER_INSTANCES):
+    for index, (_, w) in enumerate(instances):
         w.write(json.dumps({
             "message_type": "GenerateKey",
             "data": {
@@ -81,7 +88,7 @@ async def _distribute_p3(recv_messages):
         }).encode('utf-8'))
         await w.drain()
         
-async def _init_signing():
+async def _init_keygen():
     for index, (_, w) in enumerate(SIGNER_INSTANCES):
         w.write(json.dumps({
             "message_type": "InitGenerateKey",
@@ -93,8 +100,8 @@ async def _init_signing():
         }).encode('utf-8'))
         await w.drain()
         
-async def _recv_to_array(array, expected_phase, multiple = False):
-    for index, (r, _) in enumerate(SIGNER_INSTANCES):
+async def _recv_to_array(array, expected_phase, instances, multiple = False):
+    for index, (r, _) in enumerate(instances):
         recv = (await r.read(255)).decode("utf8")
         recv_dct = json.loads(recv)
         if recv_type := recv_dct.get("message_type") != expected_phase:
@@ -108,10 +115,21 @@ async def _recv_to_array(array, expected_phase, multiple = False):
         array[index] = recv_dct['data']['commitment']
         array[index].insert(index, None)
         
+        
+async def _recv_results(array, expected_phase, instances):
+    for index, (r, _) in enumerate(instances):
+        recv = (await r.read(255)).decode("utf8")
+        recv_dct = json.loads(recv)
+        if recv_type := recv_dct.get("message_type") != expected_phase:
+            raise RuntimeError("Wrong message type: " + recv_type + " != " + expected_phase)
+        
+        print(recv_dct)
+        array[index] = recv_dct['data']
+        
 
-def _build_distributed_data(recv_array):
+def _build_distributed_data(recv_array, instances):
     built_array = []
-    for signer in range(len(SIGNER_INSTANCES)):
+    for signer in range(len(instances)):
         built_array.append([])
         for message in range(len(recv_array)):
             if message == signer:
@@ -121,44 +139,121 @@ def _build_distributed_data(recv_array):
             
     return built_array
         
+async def _get_signer(index):
+    reader, _ = SIGNER_INSTANCES[index]
+    response = (await reader.read(255)).decode("utf8") 
+    return index, response
         
- 
-async def init_signers():
+async def _get_active_signers():
+    current_missing = K_SIGNERS
+    for (_, w) in SIGNER_INSTANCES:
+        w.write(json.dumps({
+            "message_type": "InitSign",
+            "data": {}
+        }).encode('utf-8'))
+        await w.drain()
+        
+    for f in asyncio.as_completed([_get_signer(i) for i in range(N_SIGNERS)]):
+        index, response = await f
+        current_missing -= 1
+        print(response)
+        ACTIVE_SIGNERS.append(index)
+        if current_missing == 0:
+            break
+
+async def mp_sign_init(hash):
+    for index in ACTIVE_SIGNERS:
+        _, w = SIGNER_INSTANCES[index]
+        w.write(json.dumps({
+            "message_type": "InitSign",
+            "data": {
+                "parties": ACTIVE_SIGNERS,
+                "hash": hash
+            }
+        }).encode('utf-8'))
+        await w.drain()
     
+async def mp_sign():
+    active_signer_instances = [SIGNER_INSTANCES[i] for i in ACTIVE_SIGNERS]
+    sign_messages = [None for _ in range(K_SIGNERS)]
+    await _recv_to_array(sign_messages, "Sign", active_signer_instances)
+    
+    copies_of_data = _build_distributed_data(sign_messages, active_signer_instances)
+    
+    for index, (_, w) in enumerate(active_signer_instances):
+        await _distribute_copies(w, copies_of_data[index])
+        
+    p3_messages = [None for _ in range(K_SIGNERS)]
+    await _recv_to_array(p3_messages, "Sign", active_signer_instances, True)
+    await _distribute_p3(p3_messages, active_signer_instances)
+    
+    for _ in range(6):
+        sign_messages = [None for _ in range(K_SIGNERS)]
+        await _recv_to_array(sign_messages, "Sign", active_signer_instances)
+        
+        copies_of_data = _build_distributed_data(sign_messages, active_signer_instances)
+        
+        for index, (_, w) in enumerate(active_signer_instances):
+            await _distribute_copies(w, copies_of_data[index])
+            
+    signatures = [None for _ in range(K_SIGNERS)]
+    await _recv_results(signatures, "Sign", active_signer_instances)
+    print("signatures got")
+    return signatures
+    
+    
+async def signer_manager():
+    contexts = await key_generation()
+    print(contexts)
+    print("signers inited")
+    while True:
+        task = await TASK_QUEUE.get()
+        print(task)
+        ACTIVE_SIGNERS.clear()
+        await _get_active_signers()
+        await mp_sign_init(task)
+        signatures = await mp_sign()
+        print("Signing complete, signatures:", signatures)
+        await SIGNATURE_QUEUE.put(signatures[0]["signature"])
+        
+    
+async def key_generation():
     for index, (url, port) in enumerate(SIGNERS):
         SIGNER_INSTANCES[index] = (await asyncio.open_connection(url, port))
     
-    await _init_signing()
+    await _init_keygen()
+    
     for _ in range(2):
         key_gen_messages = [None for _ in range(len(SIGNERS))]
-        await _recv_to_array(key_gen_messages, "GenerateKey")
+        await _recv_to_array(key_gen_messages, "GenerateKey", SIGNER_INSTANCES)
     
-        copies_of_data = _build_distributed_data(key_gen_messages)
+        copies_of_data = _build_distributed_data(key_gen_messages, SIGNER_INSTANCES)
         print("AAAAAAAAA", copies_of_data)
     
         for index, (_, w) in enumerate(SIGNER_INSTANCES):
             await _distribute_copies(w, copies_of_data[index])
     
     key_gen_messages = [None for _ in range(len(SIGNERS))]
-    await _recv_to_array(key_gen_messages, "GenerateKey", True)
-    await _distribute_p3(key_gen_messages)
+    await _recv_to_array(key_gen_messages, "GenerateKey", SIGNER_INSTANCES, True)
+    await _distribute_p3(key_gen_messages, SIGNER_INSTANCES)
     
     for _ in range(2):
         key_gen_messages = [None for _ in range(len(SIGNERS))]
-        await _recv_to_array(key_gen_messages, "GenerateKey")
+        await _recv_to_array(key_gen_messages, "GenerateKey", SIGNER_INSTANCES)
     
-        copies_of_data = _build_distributed_data(key_gen_messages)
+        copies_of_data = _build_distributed_data(key_gen_messages, SIGNER_INSTANCES)
         print(copies_of_data)
     
         for index, (_, w) in enumerate(SIGNER_INSTANCES):
             await _distribute_copies(w, copies_of_data[index])
 
     key_gen_sign_contexts = [None for _ in range(len(SIGNERS))]
-    await _recv_to_array(key_gen_sign_contexts, "GenerateKey")
+    await _recv_to_array(key_gen_sign_contexts, "GenerateKey", SIGNER_INSTANCES)
+    return key_gen_sign_contexts
 
 loop = asyncio.get_event_loop()
 server = loop.run_until_complete(asyncio.start_server(handle_client, "localhost", 15555))
-signer_server = loop.run_until_complete(init_signers())
+signer_server = loop.run_until_complete(signer_manager())
 servers = [server, signer_server]
 try:
     print("Running... Press ^C to shutdown")
