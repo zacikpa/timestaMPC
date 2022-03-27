@@ -11,7 +11,6 @@ curv-kzen = { version = "0.9", default-features = false }
 sha2 = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.17.0", features = ["full"] }
 
 [dependencies.multi-party-ecdsa]
 git = "https://github.com/ZenGo-X/multi-party-ecdsa"

@@ -11,6 +11,8 @@ use paillier::EncryptionKey;
 use sha2::Sha256;
 use serde::{Serialize, Deserialize};
 
+use crate::requests::{Response, Context, ResponseType};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext1 {
     threshold: u16,
@@ -94,8 +96,7 @@ pub struct GG18SignContext {
 }
 
 
-pub fn gg18_key_gen_1(parties : u16, threshold : u16, index : u16)
--> Result<(GG18KeyGenMsg1, GG18KeyGenContext1), &'static str> {
+pub fn gg18_key_gen_1(parties : u16, threshold : u16, index : u16) -> (Context, Response) {
 
     let party_keys = Keys::create_safe_prime(index);
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
@@ -108,15 +109,26 @@ pub fn gg18_key_gen_1(parties : u16, threshold : u16, index : u16)
         bc_i: bc_i.clone(),
         decom_i,
     };
-    Ok((bc_i, context1))
+    let m = serde_json::to_vec(&bc_i);
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::GenContext1(context1), Response{ response_type: ResponseType::GenerateKey,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_key_gen_2(messages: Vec<GG18KeyGenMsg1>, context: &GG18KeyGenContext1)
--> Result<(GG18KeyGenMsg2, GG18KeyGenContext2), &'static str> {
+pub fn gg18_key_gen_2(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext1) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18KeyGenMsg1>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
 
     let (bc_i, decom_i) = (context.bc_i.clone(), context.decom_i.clone());
 
-    let mut bc1_vec = messages;
+    let mut bc1_vec = messages.unwrap();
 
     bc1_vec.insert(context.index as usize, bc_i);
 
@@ -128,14 +140,28 @@ pub fn gg18_key_gen_2(messages: Vec<GG18KeyGenMsg1>, context: &GG18KeyGenContext
         bc1_vec,
         decom_i: decom_i.clone(),
     };
-    Ok((decom_i, context2))
+
+    let m = serde_json::to_vec(&decom_i);
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::GenContext2(context2), Response{ response_type: ResponseType::GenerateKey,
+                                        data: vec!(m.unwrap())})
 }
 
 /*
 Messages from this function should be sent over an encrypted channel
 */
-pub fn gg18_key_gen_3(messages: Vec<GG18KeyGenMsg2>, context: &GG18KeyGenContext2)
--> Result<(Vec<GG18KeyGenMsg3>, GG18KeyGenContext3), &'static str> {
+pub fn gg18_key_gen_3(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext2) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18KeyGenMsg2>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let params = Parameters {
         threshold: context.threshold - 1,
@@ -165,7 +191,7 @@ pub fn gg18_key_gen_3(messages: Vec<GG18KeyGenMsg2>, context: &GG18KeyGenContext
             &params, &decom_vec, &context.bc1_vec);
 
     if result.is_err() {
-        return Err("invalid key")
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
     }
 
     let (vss_scheme, secret_shares, _index) = result.unwrap();
@@ -185,13 +211,26 @@ pub fn gg18_key_gen_3(messages: Vec<GG18KeyGenMsg2>, context: &GG18KeyGenContext
         y_sum,
         point_vec,
     };
-    Ok((messages_output, context3))
+
+    let m : Option<Vec<Vec<u8>>> = messages_output.into_iter()
+           .map(|x| serde_json::to_vec(&x).ok())
+           .collect();
+    if m.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::GenContext3(context3), Response{ response_type: ResponseType::GenerateKey, data: m.unwrap()})
 }
 
-pub fn gg18_key_gen_4(messages: Vec<GG18KeyGenMsg3>, context: &GG18KeyGenContext3)
--> Result<(GG18KeyGenMsg4, GG18KeyGenContext4), &'static str> {
+pub fn gg18_key_gen_4(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext3) -> (Context, Response) {
 
-    let mut party_shares = messages;
+    let messages : Option<Vec<GG18KeyGenMsg3>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let mut party_shares = messages.unwrap();
     party_shares.insert(context.index as usize, context.secret_shares[context.index as usize].clone());
 
     let context4 = GG18KeyGenContext4 {
@@ -206,17 +245,28 @@ pub fn gg18_key_gen_4(messages: Vec<GG18KeyGenMsg3>, context: &GG18KeyGenContext
         party_shares
     };
 
-    Ok((context4.vss_scheme.clone(), context4))
+    let m = serde_json::to_vec(&context4.vss_scheme.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::GenContext4(context4), Response{ response_type: ResponseType::GenerateKey,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_key_gen_5(messages: Vec<GG18KeyGenMsg4>, context: &GG18KeyGenContext4)
--> Result<(GG18KeyGenMsg5, GG18KeyGenContext5), &'static str> {
+pub fn gg18_key_gen_5(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext4) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18KeyGenMsg4>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
 
     let params = Parameters {
         threshold: context.threshold - 1,
         share_count: context.parties,
     };
-    let mut vss_scheme_vec: Vec<VerifiableSS<Secp256k1>> = messages;
+    let mut vss_scheme_vec: Vec<VerifiableSS<Secp256k1>> = messages.unwrap();
     vss_scheme_vec.insert(context.index as usize, context.vss_scheme.clone());
 
     let result = context.party_keys
@@ -229,7 +279,7 @@ pub fn gg18_key_gen_5(messages: Vec<GG18KeyGenMsg4>, context: &GG18KeyGenContext
         );
 
     if result.is_err() {
-        return Err("invalid vss")
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
     }
 
     let (shared_keys, dlog_proof) = result.unwrap();
@@ -247,11 +297,23 @@ pub fn gg18_key_gen_5(messages: Vec<GG18KeyGenMsg4>, context: &GG18KeyGenContext
         dlog_proof
     };
 
-    Ok((context5.dlog_proof.clone(), context5))
+    let m = serde_json::to_vec(&context5.dlog_proof.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::GenContext5(context5), Response{ response_type: ResponseType::GenerateKey,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_key_gen_6(messages: Vec<GG18KeyGenMsg5>, context: &GG18KeyGenContext5)
+pub fn gg18_key_gen_6(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext5)
 -> Result<GG18SignContext, &'static str> {
+
+    let messages : Option<Vec<GG18KeyGenMsg5>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return Err("failed to parse messages");
+    }
 
     let params = Parameters {
         threshold: context.threshold - 1,
@@ -259,7 +321,7 @@ pub fn gg18_key_gen_6(messages: Vec<GG18KeyGenMsg5>, context: &GG18KeyGenContext
     };
 
     let bc1_vec = context.bc1_vec.clone();
-    let mut dlog_proof_vec: Vec<DLogProof<Secp256k1, Sha256>> = messages;
+    let mut dlog_proof_vec: Vec<DLogProof<Secp256k1, Sha256>> = messages.unwrap();
     dlog_proof_vec.insert(context.index as usize, context.dlog_proof.clone());
 
     let result = Keys::verify_dlog_proofs(&params, &dlog_proof_vec, &context.point_vec);
