@@ -2,8 +2,7 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 use crate::key_gen::{GG18KeyGenContext1, GG18KeyGenContext2, GG18KeyGenContext3, GG18KeyGenContext4,
     GG18KeyGenContext5, GG18SignContext, gg18_key_gen_1, gg18_key_gen_2, gg18_key_gen_3,
-    gg18_key_gen_4, gg18_key_gen_5, gg18_key_gen_6,
-    GG18KeyGenMsg1, GG18KeyGenMsg2, GG18KeyGenMsg3, GG18KeyGenMsg4, GG18KeyGenMsg5};
+    gg18_key_gen_4, gg18_key_gen_5, gg18_key_gen_6};
 use crate::sign::{GG18SignContext1, GG18SignContext2, GG18SignContext3, GG18SignContext4,
     GG18SignContext5, GG18SignContext6, GG18SignContext7, GG18SignContext8, GG18SignContext9,
     gg18_sign1, gg18_sign2, gg18_sign3, gg18_sign4, gg18_sign5, gg18_sign6, gg18_sign7, gg18_sign8,
@@ -26,7 +25,7 @@ pub struct Request {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-enum ResponseType {
+pub enum ResponseType {
     GenerateKey,
     RegenerateKey,
     InitSign,
@@ -36,8 +35,8 @@ enum ResponseType {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Response {
-    response_type: ResponseType,
-    data: Vec<Vec<u8>>,
+    pub response_type: ResponseType,
+    pub data: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -70,9 +69,7 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
 
     let request = serde_json::from_slice::<Request>(&request_buf);
     if request.is_err() {
-            return (Context::Empty, Response{
-                    response_type: ResponseType::Abort,
-                    data: Vec::new()});
+            return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()});
     }
     let request = request.unwrap();
 
@@ -81,66 +78,36 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
         (Context::Empty, RequestType::GenerateKey) =>
             {
             let (parties, threshold, index) = data_to_gen_info(request.data);
-            let (m, c) = gg18_key_gen_1(parties, threshold, index).unwrap();
-            (Context::GenContext1(c), Response{ response_type: ResponseType::GenerateKey,
-                                                data: vec!(serde_json::to_vec(&m).unwrap())})
+            gg18_key_gen_1(parties, threshold, index)
             }
 
         (Context::Empty, RequestType::InitSign) =>
             {
-                let data = fs::read_to_string(SIGNCONTEXTPATH).expect("Unable to load setup file.");
-                let context = Context::SignContext0(serde_json::from_str(&data).expect("Unable to parse setup file."));
-                (context, Response{ response_type: ResponseType::Sign, data: Vec::new()})
+                let data = fs::read_to_string(SIGNCONTEXTPATH);
+                if data.is_err() {
+                    eprintln!("Failed to load setup file.");
+                    return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()});
+                }
+                let context = serde_json::from_str::<GG18SignContext>(&data.unwrap());
+                if context.is_err() {
+                    eprintln!("Failed to parse setup file.");
+                    return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()});
+                }
+                (Context::SignContext0(context.unwrap()),
+                Response{ response_type: ResponseType::Sign, data: Vec::new()})
             }
 
-        (Context::GenContext1(context), RequestType::GenerateKey) =>
-            {
-                let messages = request.data.into_iter()
-                                            .map(| x | serde_json::from_slice(&x).unwrap())
-                                            .collect::<Vec<GG18KeyGenMsg1>>();
-                let (m, c) = gg18_key_gen_2(messages, context).unwrap();
-                (Context::GenContext2(c), Response{ response_type: ResponseType::GenerateKey,
-                                                    data: vec!(serde_json::to_vec(&m).unwrap())})
-            }
+        (Context::GenContext1(context), RequestType::GenerateKey) => gg18_key_gen_2(request.data, context),
 
-        (Context::GenContext2(context), RequestType::GenerateKey) =>
-            {
-                let messages = request.data.into_iter()
-                                            .map(| x | serde_json::from_slice(&x).unwrap())
-                                            .collect::<Vec<GG18KeyGenMsg2>>();
-                let (m, c) = gg18_key_gen_3(messages, context).unwrap();
-                (Context::GenContext3(c), Response{ response_type: ResponseType::GenerateKey,
-                                                    data: m.into_iter()
-                                                           .map(|x| serde_json::to_vec(&x).unwrap())
-                                                           .collect()})
-            }
+        (Context::GenContext2(context), RequestType::GenerateKey) => gg18_key_gen_3(request.data, context),
 
-        (Context::GenContext3(context), RequestType::GenerateKey) =>
-            {
-                let messages = request.data.into_iter()
-                                            .map(| x | serde_json::from_slice(&x).unwrap())
-                                            .collect::<Vec<GG18KeyGenMsg3>>();
-                let (m, c) = gg18_key_gen_4(messages, context).unwrap();
-                (Context::GenContext4(c), Response{ response_type: ResponseType::GenerateKey,
-                                                    data: vec!(serde_json::to_vec(&m).unwrap())})
-            }
+        (Context::GenContext3(context), RequestType::GenerateKey) => gg18_key_gen_4(request.data, context),
 
-        (Context::GenContext4(context), RequestType::GenerateKey) =>
-            {
-                let messages = request.data.into_iter()
-                                            .map(| x | serde_json::from_slice(&x).unwrap())
-                                            .collect::<Vec<GG18KeyGenMsg4>>();
-                let (m, c) = gg18_key_gen_5(messages, context).unwrap();
-                (Context::GenContext5(c), Response{ response_type: ResponseType::GenerateKey,
-                                                    data: vec!(serde_json::to_vec(&m).unwrap())})
-            }
+        (Context::GenContext4(context), RequestType::GenerateKey) => gg18_key_gen_5(request.data, context),
 
         (Context::GenContext5(context), RequestType::GenerateKey) =>
             {
-                let messages = request.data.into_iter()
-                                            .map(| x | serde_json::from_slice(&x).unwrap())
-                                            .collect::<Vec<GG18KeyGenMsg5>>();
-                let c = gg18_key_gen_6(messages, context).unwrap();
+                let c = gg18_key_gen_6(request.data, context).unwrap();
                 fs::write(SIGNCONTEXTPATH, serde_json::to_string(&c).unwrap()).expect("Unable to save setup file.");
 
                 (Context::Empty, Response{ response_type: ResponseType::GenerateKey,
@@ -245,9 +212,6 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
                                                      data: vec!(s)})
             }
 
-        _ => {let response = b"Ok\n";
-                return (Context::Empty, Response{
-                        response_type: ResponseType::Abort,
-                        data: vec![response.to_vec()]});}
+        _ => (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()})
         }
 }

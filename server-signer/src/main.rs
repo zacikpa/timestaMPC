@@ -19,10 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = socket.read(&mut request_buf);
 
                 // Process the request and generate a response
-                let response = process_request(&context, request_buf.to_vec());
-                context = response.0;
+                let (context, response) = process_request(&context, request_buf.to_vec());
                 // Write back the response
-                let e = socket.write_all(&serde_json::to_vec(&response.1).unwrap());
+                let e = socket.write_all(&serde_json::to_vec(&response).unwrap());
                 if e.is_err() {
                     eprintln!("failed to write to socket; err = {:?}", e);
                     break;
