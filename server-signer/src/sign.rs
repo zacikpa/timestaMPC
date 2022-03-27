@@ -16,6 +16,7 @@ use paillier::EncryptionKey;
 use multi_party_ecdsa::utilities::mta::*;
 use sha2::Sha256;
 use crate::key_gen::GG18SignContext;
+use crate::requests::{Response, Context, ResponseType};
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext1 {
@@ -23,7 +24,6 @@ pub struct GG18SignContext1 {
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
-    party_id: u16,
     party_keys: Keys,
     vss_scheme_vec: Vec<VerifiableSS<Secp256k1>>,
     paillier_key_vec: Vec<EncryptionKey>,
@@ -42,7 +42,6 @@ pub struct GG18SignContext2 {
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
-    party_id: u16,
     party_keys: Keys,
     vss_scheme_vec: Vec<VerifiableSS<Secp256k1>>,
     y_sum: Point<Secp256k1>,
@@ -58,11 +57,9 @@ pub type GG18SignMsg2 = (MessageB, MessageB);
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext3 {
-    indices: Vec<u16>,
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
-    party_id: u16,
     y_sum: Point<Secp256k1>,
     sign_keys: SignKeys,
     decommit: SignDecommitPhase1,
@@ -76,11 +73,9 @@ pub type GG18SignMsg3 = Scalar<Secp256k1>;
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext4 {
-    indices: Vec<u16>,
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
-    party_id: u16,
     y_sum: Point<Secp256k1>,
     sign_keys: SignKeys,
     decommit: SignDecommitPhase1,
@@ -94,10 +89,8 @@ pub type GG18SignMsg4 = SignDecommitPhase1;
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext5 {
-    indices: Vec<u16>,
     threshold_index: usize,
     threshold: u16,
-    party_id: u16,
     local_sig: LocalSignature,
     phase5_com: Phase5Com1,
     phase_5a_decom: Phase5ADecom1,
@@ -110,10 +103,8 @@ pub type GG18SignMsg5 = Phase5Com1;
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext6 {
-    indices: Vec<u16>,
     threshold_index: usize,
     threshold: u16,
-    party_id: u16,
     local_sig: LocalSignature,
     phase_5a_decom: Phase5ADecom1,
     helgamal_proof: HomoELGamalProof<Secp256k1, Sha256>,
@@ -126,14 +117,10 @@ pub type GG18SignMsg6 = (Phase5ADecom1, HomoELGamalProof<Secp256k1, Sha256>, DLo
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext7 {
-    indices: Vec<u16>,
     threshold_index: usize,
     threshold: u16,
-    party_id: u16,
     local_sig: LocalSignature,
-    phase_5a_decom: Phase5ADecom1,
     decommit5a_and_elgamal_and_dlog_vec_includes_i: Vec<(Phase5ADecom1, HomoELGamalProof<Secp256k1, Sha256>, DLogProof<Secp256k1, Sha256>)>,
-    phase_5a_decomm_vec: Vec<Phase5ADecom1>,
     phase5_com2: Phase5Com2,
     phase_5d_decom2: Phase5DDecom2
 }
@@ -142,14 +129,10 @@ pub type GG18SignMsg7 = Phase5Com2;
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext8 {
-    indices: Vec<u16>,
     threshold_index: usize,
     threshold: u16,
-    party_id: u16,
     local_sig: LocalSignature,
-    phase_5a_decom: Phase5ADecom1,
     decommit5a_and_elgamal_and_dlog_vec_includes_i: Vec<(Phase5ADecom1, HomoELGamalProof<Secp256k1, Sha256>, DLogProof<Secp256k1, Sha256>)>,
-    phase_5a_decomm_vec: Vec<Phase5ADecom1>,
     phase_5d_decom2: Phase5DDecom2,
     commit5c_vec: Vec<Phase5Com2>
 }
@@ -164,8 +147,7 @@ pub struct GG18SignContext9 {
 
 pub type GG18SignMsg9 = Scalar<Secp256k1>;
 
-pub fn gg18_sign1(context: &GG18SignContext, indices: Vec<u16>, message_hash: Vec<u8>)
--> Result<(GG18SignMsg1, GG18SignContext1), &'static str> {
+pub fn gg18_sign1(context: &GG18SignContext, indices: Vec<u16>, message_hash: Vec<u8>) -> (Context, Response) {
 
     let private = PartyPrivate::set_private(context.party_keys.clone(), context.shared_keys.clone());
     let sign_keys = SignKeys::create(
@@ -186,7 +168,6 @@ pub fn gg18_sign1(context: &GG18SignContext, indices: Vec<u16>, message_hash: Ve
         threshold_index,
         message_hash,
         threshold: context.threshold,
-        party_id: context.index,
         party_keys: context.party_keys.clone(),
         vss_scheme_vec: context.vss_scheme_vec.clone(),
         paillier_key_vec: context.paillier_key_vec.clone(),
@@ -197,11 +178,24 @@ pub fn gg18_sign1(context: &GG18SignContext, indices: Vec<u16>, message_hash: Ve
         decommit
     };
 
-    Ok(((context1.com.clone(), m_a_k), context1))
+    let m = serde_json::to_vec(&(context1.com.clone(), m_a_k));
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext1(context1), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_sign2(messages: Vec<GG18SignMsg1>, context: &GG18SignContext1)
--> Result<(Vec<GG18SignMsg2>, GG18SignContext2), &'static str> {
+pub fn gg18_sign2(messages: Vec<Vec<u8>>, context: &GG18SignContext1) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg1>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut j = 0;
     let mut bc1_vec: Vec<SignBroadcastPhase1> = Vec::new();
@@ -243,7 +237,7 @@ pub fn gg18_sign2(messages: Vec<GG18SignMsg1>, context: &GG18SignContext1)
                 &[]
             );
             if result1.is_err() || result2.is_err() {
-                return Err("mta message B failed");
+                return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
             }
             let (m_b_gamma, beta_gamma, _, _) = result1.unwrap();
             let (m_b_w, beta_wi, _, _) = result2.unwrap();
@@ -259,7 +253,6 @@ pub fn gg18_sign2(messages: Vec<GG18SignMsg1>, context: &GG18SignContext1)
         threshold_index: context.threshold_index,
         message_hash: context.message_hash.clone(),
         threshold: context.threshold,
-        party_id: context.party_id,
         party_keys: context.party_keys.clone(),
         vss_scheme_vec: context.vss_scheme_vec.clone(),
         y_sum: context.y_sum.clone(),
@@ -271,12 +264,27 @@ pub fn gg18_sign2(messages: Vec<GG18SignMsg1>, context: &GG18SignContext1)
         ni_vec
     };
 
-    Ok((send_vec, context2))
+    let m : Option<Vec<Vec<u8>>> = send_vec.into_iter()
+           .map(|x| serde_json::to_vec(&x).ok())
+           .collect();
 
+    if m.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    (Context::SignContext2(context2), Response{ response_type: ResponseType::Sign, data: m.unwrap()})
 }
 
-pub fn gg18_sign3(messages: Vec<GG18SignMsg2>, context: &GG18SignContext2)
--> Result<(GG18SignMsg3, GG18SignContext3), &'static str> {
+pub fn gg18_sign3(messages: Vec<Vec<u8>>, context: &GG18SignContext2) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg2>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut m_b_gamma_rec_vec: Vec<MessageB> = Vec::new();
     let mut m_b_w_rec_vec: Vec<MessageB> = Vec::new();
@@ -297,7 +305,7 @@ pub fn gg18_sign3(messages: Vec<GG18SignMsg2>, context: &GG18SignContext2)
             let result = m_b
                 .verify_proofs_get_alpha(&context.party_keys.dk, &context.sign_keys.k_i);
             if result.is_err() {
-                return Err("wrong dlog or m_b")
+                return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
             }
             let alpha_ij_gamma = result.unwrap();
 
@@ -305,7 +313,7 @@ pub fn gg18_sign3(messages: Vec<GG18SignMsg2>, context: &GG18SignContext2)
             let result = m_b
                 .verify_proofs_get_alpha(&context.party_keys.dk, &context.sign_keys.k_i);
             if result.is_err() {
-                return Err("wrong dlog or m_b")
+                return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
             }
             let alpha_ij_wi = result.unwrap();
 
@@ -328,11 +336,9 @@ pub fn gg18_sign3(messages: Vec<GG18SignMsg2>, context: &GG18SignContext2)
     let sigma = context.sign_keys.phase2_sigma_i(&miu_vec, &context.ni_vec);
 
     let context3 = GG18SignContext3 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         message_hash: context.message_hash.clone(),
         threshold: context.threshold,
-        party_id: context.party_id,
         y_sum: context.y_sum.clone(),
         sign_keys: context.sign_keys.clone(),
         decommit: context.decommit.clone(),
@@ -342,11 +348,24 @@ pub fn gg18_sign3(messages: Vec<GG18SignMsg2>, context: &GG18SignContext2)
         sigma
     };
 
-    Ok((delta_i, context3))
+    let m = serde_json::to_vec(&delta_i);
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext3(context3), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_sign4(messages: Vec<GG18SignMsg3>, context: &GG18SignContext3)
--> Result<(GG18SignMsg4, GG18SignContext4), &'static str> {
+pub fn gg18_sign4(messages: Vec<Vec<u8>>, context: &GG18SignContext3) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg3>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut delta_vec: Vec<Scalar<Secp256k1>> = Vec::new();
 
@@ -363,11 +382,9 @@ pub fn gg18_sign4(messages: Vec<GG18SignMsg3>, context: &GG18SignContext3)
     let delta_inv = SignKeys::phase3_reconstruct_delta(&delta_vec);
 
     let context4 = GG18SignContext4 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         message_hash: context.message_hash.clone(),
         threshold: context.threshold,
-        party_id: context.party_id,
         y_sum: context.y_sum.clone(),
         sign_keys: context.sign_keys.clone(),
         decommit: context.decommit.clone(),
@@ -377,11 +394,24 @@ pub fn gg18_sign4(messages: Vec<GG18SignMsg3>, context: &GG18SignContext3)
         delta_inv
     };
 
-    Ok((context4.decommit.clone(), context4))
+    let m = serde_json::to_vec(&context4.decommit.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext4(context4), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_sign5(messages: Vec<GG18SignMsg4>, context: &GG18SignContext4)
--> Result<(GG18SignMsg5, GG18SignContext5), &'static str> {
+pub fn gg18_sign5(messages: Vec<Vec<u8>>, context: &GG18SignContext4) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg4>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut bc1_vec = context.bc1_vec.clone();
     let mut decommit_vec: Vec<SignDecommitPhase1> = Vec::new();
@@ -405,7 +435,7 @@ pub fn gg18_sign5(messages: Vec<GG18SignMsg4>, context: &GG18SignContext4)
     let result = SignKeys::phase4(&context.delta_inv, &b_proof_vec, decommit_vec, &bc1_vec);
 
     if result.is_err() {
-        return Err("bad gamma_i decommit")
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
     }
 
     let r = result.unwrap();
@@ -421,10 +451,8 @@ pub fn gg18_sign5(messages: Vec<GG18SignMsg4>, context: &GG18SignContext4)
         local_sig.phase5a_broadcast_5b_zkproof();
 
     let context5 = GG18SignContext5 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         threshold: context.threshold,
-        party_id: context.party_id,
         local_sig,
         phase5_com,
         phase_5a_decom,
@@ -432,13 +460,26 @@ pub fn gg18_sign5(messages: Vec<GG18SignMsg4>, context: &GG18SignContext4)
         dlog_proof_rho,
         r
     };
-    Ok((context5.phase5_com.clone(), context5))
+
+    let m = serde_json::to_vec(&context5.phase5_com.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext5(context5), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 
 }
 
-pub fn gg18_sign6(messages: Vec<GG18SignMsg5>, context: &GG18SignContext5)
--> Result<(GG18SignMsg6, GG18SignContext6), &'static str> {
+pub fn gg18_sign6(messages: Vec<Vec<u8>>, context: &GG18SignContext5) -> (Context, Response) {
 
+    let messages : Option<Vec<GG18SignMsg5>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
     let mut commit5a_vec: Vec<Phase5Com1> = Vec::new();
 
     let mut j = 0;
@@ -452,10 +493,8 @@ pub fn gg18_sign6(messages: Vec<GG18SignMsg5>, context: &GG18SignContext5)
     }
 
     let context6 = GG18SignContext6 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         threshold: context.threshold,
-        party_id: context.party_id,
         local_sig: context.local_sig.clone(),
         phase_5a_decom: context.phase_5a_decom.clone(),
         helgamal_proof: context.helgamal_proof.clone(),
@@ -465,13 +504,26 @@ pub fn gg18_sign6(messages: Vec<GG18SignMsg5>, context: &GG18SignContext5)
 
     };
 
-    Ok(((context6.phase_5a_decom.clone(), context6.helgamal_proof.clone(),
-    context6.dlog_proof_rho.clone()), context6))
+    let m = serde_json::to_vec(&(context6.phase_5a_decom.clone(), context6.helgamal_proof.clone(),
+    context6.dlog_proof_rho.clone()));
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext6(context6), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 
 }
 
-pub fn gg18_sign7(messages: Vec<GG18SignMsg6>, context: &GG18SignContext6)
--> Result<(GG18SignMsg7, GG18SignContext7), &'static str> {
+pub fn gg18_sign7(messages: Vec<Vec<u8>>, context: &GG18SignContext6) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg6>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut commit5a_vec = context.commit5a_vec.clone();
     let mut decommit5a_and_elgamal_and_dlog_vec: Vec<(
@@ -519,29 +571,38 @@ pub fn gg18_sign7(messages: Vec<GG18SignMsg6>, context: &GG18SignContext6)
         );
 
     if result.is_err() {
-        return Err("error phase5")
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
     }
 
     let (phase5_com2, phase_5d_decom2) = result.unwrap();
 
     let context7 = GG18SignContext7 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         threshold: context.threshold,
-        party_id: context.party_id,
         local_sig: context.local_sig.clone(),
-        phase_5a_decom: context.phase_5a_decom.clone(),
         decommit5a_and_elgamal_and_dlog_vec_includes_i,
-        phase_5a_decomm_vec,
         phase5_com2,
         phase_5d_decom2
     };
 
-    Ok((context7.phase5_com2.clone(), context7))
+    let m = serde_json::to_vec(&context7.phase5_com2.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext7(context7), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 }
 
-pub fn gg18_sign8(messages: Vec<GG18SignMsg7>, context: &GG18SignContext7)
--> Result<(GG18SignMsg8, GG18SignContext8), &'static str> {
+pub fn gg18_sign8(messages: Vec<Vec<u8>>, context: &GG18SignContext7) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg7>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut commit5c_vec: Vec<Phase5Com2> = Vec::new();
     let mut j = 0;
@@ -555,24 +616,33 @@ pub fn gg18_sign8(messages: Vec<GG18SignMsg7>, context: &GG18SignContext7)
     }
 
     let context8 = GG18SignContext8 {
-        indices: context.indices.clone(),
         threshold_index: context.threshold_index,
         threshold: context.threshold,
-        party_id: context.party_id,
         local_sig: context.local_sig.clone(),
-        phase_5a_decom: context.phase_5a_decom.clone(),
         decommit5a_and_elgamal_and_dlog_vec_includes_i: context.decommit5a_and_elgamal_and_dlog_vec_includes_i.clone(),
-        phase_5a_decomm_vec: context.phase_5a_decomm_vec.clone(),
         phase_5d_decom2: context.phase_5d_decom2.clone(),
         commit5c_vec
     };
 
-    Ok((context8.phase_5d_decom2.clone(), context8))
+    let m = serde_json::to_vec(&context8.phase_5d_decom2.clone());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext8(context8), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 
 }
 
-pub fn gg18_sign9(messages: Vec<GG18SignMsg8>, context: &GG18SignContext8)
--> Result<(GG18SignMsg9, GG18SignContext9), &'static str> {
+pub fn gg18_sign9(messages: Vec<Vec<u8>>, context: &GG18SignContext8) -> (Context, Response) {
+
+    let messages : Option<Vec<GG18SignMsg8>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+
+    let messages = messages.unwrap();
 
     let mut decommit5d_vec: Vec<Phase5DDecom2> = Vec::new();
     let mut j = 0;
@@ -601,7 +671,7 @@ pub fn gg18_sign9(messages: Vec<GG18SignMsg8>, context: &GG18SignContext8)
         );
 
     if s_i.is_err() {
-        return Err("bad com 5d")
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
     }
 
     let context9 = GG18SignContext9 {
@@ -609,12 +679,26 @@ pub fn gg18_sign9(messages: Vec<GG18SignMsg8>, context: &GG18SignContext8)
         local_sig: context.local_sig.clone()
     };
 
-    Ok((s_i.unwrap(), context9))
+    let m = serde_json::to_vec(&s_i.unwrap());
+    if m.is_err() {
+        return (Context::Empty, Response{ response_type: ResponseType::Abort, data: Vec::new()});
+    }
+    (Context::SignContext9(context9), Response{ response_type: ResponseType::Sign,
+                                        data: vec!(m.unwrap())})
 
 }
 
-pub fn gg18_sign10(messages: Vec<GG18SignMsg9>, context: &GG18SignContext9)
+pub fn gg18_sign10(messages: Vec<Vec<u8>>, context: &GG18SignContext9)
 -> Result<Vec<u8>, &'static str> {
+
+    let messages : Option<Vec<GG18SignMsg9>> = messages.into_iter()
+                                .map(| x | serde_json::from_slice(&x).ok())
+                                .collect();
+    if messages.is_none() {
+        return Err("failed to parse messages")
+   }
+
+    let messages = messages.unwrap();
 
     let mut s_i_vec: Vec<Scalar<Secp256k1>> = Vec::new();
 
