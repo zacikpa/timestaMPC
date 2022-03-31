@@ -7,7 +7,7 @@ use crate::sign::{GG18SignContext1, GG18SignContext2, GG18SignContext3, GG18Sign
     GG18SignContext5, GG18SignContext6, GG18SignContext7, GG18SignContext8, GG18SignContext9,
     gg18_sign1, gg18_sign2, gg18_sign3, gg18_sign4, gg18_sign5, gg18_sign6, gg18_sign7, gg18_sign8,
     gg18_sign9, gg18_sign10};
-
+use chrono::{Duration, TimeZone, Utc};
 use sha2::{Sha256, Digest};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -61,14 +61,24 @@ pub enum Context {
 }
 
 const SIGNCONTEXTPATH: &str = "/some/path/";
+const ACCEPTABLE_SECONDS: i64 = 60;
 
-fn data_to_gen_info( data: Vec<Vec<u8>> ) -> (u16, u16, u16) {
+fn data_to_gen_info(data: Vec<Vec<u8>>) -> (u16, u16, u16) {
     (data[0][0] as u16, data[0][1] as u16, data[0][2] as u16)
 }
 
-fn check_time( _time: Vec<u8 > ) -> bool
-{
-    return true;
+fn check_time(time_data: Vec<u8>) -> bool {
+    let str_timestamp = match std::str::from_utf8(&time_data) {
+        Ok(v) => v,
+        Err(_e) => return false,
+    };
+    let unix_timestamp = match str_timestamp.parse::<i64>() {
+        Ok(v) => v,
+        Err(_e) => return false,
+    };
+    let time = Utc.timestamp(unix_timestamp, 0);
+    let time_error = Duration::seconds(ACCEPTABLE_SECONDS);
+    return time < Utc::now() + time_error && time > Utc::now() - time_error;
 }
 
 pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Response) {
