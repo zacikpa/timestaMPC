@@ -16,16 +16,22 @@ ACTIVE_SIGNERS = []
 TASK_QUEUE = asyncio.Queue()
 SIGNATURE_QUEUE = asyncio.Queue()
 
+def build_payload(request_type, data):
+    return {
+        "request_type": request_type,
+        "data": data
+    }
+
 async def sign_data(data):
     # TODO figure out precision
 
-    timestamp = str(datetime.now())
+    timestamp = str(int(datetime.now().timestamp()))
     digest = hashes.Hash(hashes.SHA256())
     digest.update(bytes(data + timestamp, "utf-8"))
     hash_hex = digest.finalize().hex()
     print("GOT HEX:", hash_hex)
     # TODO distribute to clients (hash, timestamp)
-    await TASK_QUEUE.put(hash_hex)
+    await TASK_QUEUE.put((hash_hex, timestamp))
     print("put into queue")
     signature = await SIGNATURE_QUEUE.get()    
 
@@ -47,7 +53,7 @@ async def handle_command(data) -> str:
 
 async def handle_client(reader, writer):
     request = None
-    request = (await reader.read(255)).decode("utf8")
+    request = (await reader.read(4096)).decode("utf8")
     data = json.loads(request)
 
     result = await handle_command(data)
@@ -60,13 +66,9 @@ async def handle_client(reader, writer):
     writer.close()
  
 async def _distribute_copies(writer, messages):
-
-    writer.write(json.dumps({
-        "message_type": "GenerateKey",
-        "data": {
-            "commitments": messages
-        }
-    }).encode('utf-8'))
+    writer.write(json.dumps(
+        build_payload("GenerateKey", messages)
+        ).encode('utf-8'))
     await writer.drain()
         
 async def _distribute_p3(recv_messages, instances):
@@ -80,34 +82,25 @@ async def _distribute_p3(recv_messages, instances):
             cleaned[-1].append(messages[i][j])
             
     for index, (_, w) in enumerate(instances):
-        w.write(json.dumps({
-            "message_type": "GenerateKey",
-            "data": {
-                "commitments": cleaned[index]
-            }
-        }).encode('utf-8'))
+        w.write(json.dumps(
+            build_payload("GenerateKey", cleaned[index])).encode('utf-8'))
         await w.drain()
         
 async def _init_keygen():
-    for index, (_, w) in enumerate(SIGNER_INSTANCES):
-        w.write(json.dumps({
-            "message_type": "InitGenerateKey",
-            "data": {
-                "number_of_signers": len(SIGNER_INSTANCES),
-                "threshold": 2,
-                "signer_index": index
-            }
-        }).encode('utf-8'))
+    for _, (_, w) in enumerate(SIGNER_INSTANCES):
+        w.write(json.dumps(
+            build_payload("GenerateKey", {})
+        ).encode('utf-8'))
         await w.drain()
         
 async def _recv_to_array(array, expected_phase, instances, multiple = False):
     for index, (r, _) in enumerate(instances):
-        recv = (await r.read(255)).decode("utf8")
+        recv = (await r.read(4096)).decode("utf-8")
+        print(recv)
         recv_dct = json.loads(recv)
         if recv_type := recv_dct.get("message_type") != expected_phase:
             raise RuntimeError("Wrong message type: " + recv_type + " != " + expected_phase)
         
-        print(recv_dct)
         if not multiple:
             array[index] = recv_dct['data']['commitment'][0]
             continue
@@ -118,7 +111,7 @@ async def _recv_to_array(array, expected_phase, instances, multiple = False):
         
 async def _recv_results(array, expected_phase, instances):
     for index, (r, _) in enumerate(instances):
-        recv = (await r.read(255)).decode("utf8")
+        recv = (await r.read(4096)).decode("utf-8")
         recv_dct = json.loads(recv)
         if recv_type := recv_dct.get("message_type") != expected_phase:
             raise RuntimeError("Wrong message type: " + recv_type + " != " + expected_phase)
@@ -141,16 +134,15 @@ def _build_distributed_data(recv_array, instances):
         
 async def _get_signer(index):
     reader, _ = SIGNER_INSTANCES[index]
-    response = (await reader.read(255)).decode("utf8") 
+    response = (await reader.read(4096)).decode("utf8") 
     return index, response
         
 async def _get_active_signers():
     current_missing = K_SIGNERS
     for (_, w) in SIGNER_INSTANCES:
-        w.write(json.dumps({
-            "message_type": "InitSign",
-            "data": {}
-        }).encode('utf-8'))
+        w.write(json.dumps(
+            build_payload("InitSign", [])
+            ).encode('utf-8'))
         await w.drain()
         
     for f in asyncio.as_completed([_get_signer(i) for i in range(N_SIGNERS)]):
@@ -160,17 +152,21 @@ async def _get_active_signers():
         ACTIVE_SIGNERS.append(index)
         if current_missing == 0:
             break
+        
+def to_byte_array(data):
+    return [x for x in bytes(data, 'utf-8')]
 
-async def mp_sign_init(hash):
+async def mp_sign_init(hash, timestamp: str):
     for index in ACTIVE_SIGNERS:
         _, w = SIGNER_INSTANCES[index]
-        w.write(json.dumps({
-            "message_type": "InitSign",
-            "data": {
-                "parties": ACTIVE_SIGNERS,
-                "hash": hash
-            }
-        }).encode('utf-8'))
+        payload = build_payload("Sign", 
+                          [sorted(ACTIVE_SIGNERS), to_byte_array(hash), to_byte_array(timestamp)]
+                          )
+        dump = json.dumps(
+            payload
+            ).encode('utf-8')
+        print(dump)
+        w.write(dump)
         await w.drain()
     
 async def mp_sign():
@@ -207,11 +203,11 @@ async def signer_manager():
     print(contexts)
     print("signers inited")
     while True:
-        task = await TASK_QUEUE.get()
-        print(task)
+        task, timestamp = await TASK_QUEUE.get()
+        print(task, timestamp)
         ACTIVE_SIGNERS.clear()
         await _get_active_signers()
-        await mp_sign_init(task)
+        await mp_sign_init(task, timestamp)
         signatures = await mp_sign()
         print("Signing complete, signatures:", signatures)
         await SIGNATURE_QUEUE.put(signatures[0]["signature"])
