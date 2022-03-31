@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (mut socket, _) = listener.accept().unwrap();
 
-            let mut request_buf = Vec::new();
+            let mut request_buf = vec![0; 4096];
             loop {
                 // Read an incoming request
                 let _ = socket.read(&mut request_buf);

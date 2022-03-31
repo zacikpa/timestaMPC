@@ -62,9 +62,12 @@ pub enum Context {
 
 const SIGNCONTEXTPATH: &str = "/some/path/";
 const ACCEPTABLE_SECONDS: i64 = 60;
+const PARTIES: u16 = 2;
+const THRESHOLD: u16 = 2;
+const INDEX: u16 = 0;
 
-fn data_to_gen_info(data: Vec<Vec<u8>>) -> (u16, u16, u16) {
-    (data[0][0] as u16, data[0][1] as u16, data[0][2] as u16)
+fn data_to_gen_info(_data: Vec<Vec<u8>>) -> (u16, u16, u16) {
+    (PARTIES, THRESHOLD, INDEX)
 }
 
 fn check_time(time_data: Vec<u8>) -> bool {
