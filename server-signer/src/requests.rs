@@ -9,6 +9,15 @@ use crate::sign::{GG18SignContext1, GG18SignContext2, GG18SignContext3, GG18Sign
     gg18_sign9, gg18_sign10};
 use chrono::{Duration, TimeZone, Utc};
 use sha2::{Sha256, Digest};
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Config {
+    pub index: u16,
+    pub context_path: String,
+    pub address: String,
+    pub parties: u16,
+    pub threshold: u16,
+    pub acceptable_seconds: i64,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 enum RequestType {
@@ -60,17 +69,13 @@ pub enum Context {
     SignContext9(GG18SignContext9),
 }
 
-const SIGNCONTEXTPATH: &str = "/some/path/";
-const ACCEPTABLE_SECONDS: i64 = 60;
-const PARTIES: u16 = 2;
-const THRESHOLD: u16 = 2;
-const INDEX: u16 = 0;
-
+/*
 fn data_to_gen_info(_data: Vec<Vec<u8>>) -> (u16, u16, u16) {
     (PARTIES, THRESHOLD, INDEX)
 }
+*/
 
-fn check_time(time_data: Vec<u8>) -> bool {
+fn check_time(config: &Config, time_data: Vec<u8>) -> bool {
     let str_timestamp = match std::str::from_utf8(&time_data) {
         Ok(v) => v,
         Err(_e) => return false,
@@ -80,29 +85,21 @@ fn check_time(time_data: Vec<u8>) -> bool {
         Err(_e) => return false,
     };
     let time = Utc.timestamp(unix_timestamp, 0);
-    let time_error = Duration::seconds(ACCEPTABLE_SECONDS);
+    let time_error = Duration::seconds(config.acceptable_seconds);
     return time < Utc::now() + time_error && time > Utc::now() - time_error;
 }
 
-pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Response) {
-
-    let request = serde_json::from_slice::<Request>(&request_buf);
-    if request.is_err() {
-            return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()});
-    }
-    let request = request.unwrap();
-
-
+pub fn process_request(context: &Context, config: &Config, request: Request) -> (Context, Response) {
     match (context, request.request_type) {
         (Context::Empty, RequestType::GenerateKey) =>
             {
-            let (parties, threshold, index) = data_to_gen_info(request.data);
-            gg18_key_gen_1(parties, threshold, index)
+            //let (parties, threshold, index) = data_to_gen_info(request.data);
+            gg18_key_gen_1(config.parties, config.threshold, config.index)
             }
 
         (Context::Empty, RequestType::InitSign) =>
             {
-                let data = fs::read_to_string(SIGNCONTEXTPATH);
+                let data = fs::read_to_string(&config.context_path);
                 if data.is_err() {
                     eprintln!("Failed to load setup file.");
                     return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()});
@@ -127,7 +124,7 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
         (Context::GenContext5(context), RequestType::GenerateKey) =>
             {
                 let c = gg18_key_gen_6(request.data, context).unwrap();
-                fs::write(SIGNCONTEXTPATH, serde_json::to_string(&c).unwrap()).expect("Unable to save setup file.");
+                fs::write(&config.context_path, serde_json::to_string(&c).unwrap()).expect("Unable to save setup file.");
 
                 (Context::Empty, Response{ response_type: ResponseType::GenerateKey,
                                                     data: vec!(serde_json::to_vec(&c.pk).unwrap())})
@@ -135,7 +132,7 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
 
         (Context::SignContext0(context), RequestType::Sign) =>
             {
-                if request.data.len() < 3 || !check_time(request.data[2].clone()) {
+                if request.data.len() < 3 || !check_time(config, request.data[2].clone()) {
                     return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()})
                 }
                 let mut hasher = Sha256::new();
@@ -170,7 +167,7 @@ pub fn process_request(context: &Context, request_buf: Vec<u8>) -> (Context, Res
                 if s.is_err() {
                     return (Context::Empty, Response{response_type: ResponseType::Abort, data: Vec::new()})
                 }
-                (Context::Empty, Response{ response_type: ResponseType::GenerateKey,
+                (Context::Empty, Response{ response_type: ResponseType::Sign,
                                                      data: vec!(s.unwrap())})
             }
 

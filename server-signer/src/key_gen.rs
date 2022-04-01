@@ -98,7 +98,7 @@ pub struct GG18SignContext {
 
 pub fn gg18_key_gen_1(parties : u16, threshold : u16, index : u16) -> (Context, Response) {
 
-    let party_keys = Keys::create_safe_prime(index);
+    let party_keys = Keys::create(index);
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
 
     let context1 = GG18KeyGenContext1 {
