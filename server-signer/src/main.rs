@@ -4,10 +4,10 @@ mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
-use crate::requests::{process_request, Context, Request, Response, Config, ResponseType};
+use crate::requests::{process_request, response_bytes_to_hex, Context, Request, Config, ResponseType, ResponseWithBytes};
 use std::env;
 
-const BUFFER_SIZE: usize = 50000;
+const BUFFER_SIZE: usize = 100000;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check and parse command line arguments
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create an empty signer context
     let mut context = Context::Empty;
-    let mut response: Response;
+    let mut response: ResponseWithBytes;
 
     // Bind to the socket
     let listener = TcpListener::bind(&config.address).unwrap();
@@ -42,12 +42,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (context, response) = match request {
                     Ok(req) => process_request(&context, &config, req),
                     Err(_e) => (Context::Empty,
-                                Response{response_type: ResponseType::Abort, data: Vec::new()})
+                                ResponseWithBytes{response_type: ResponseType::Abort, data: Vec::new()})
                 };
                 println!("{:?}", context);
                 println!("{:?}", response);
                 // Write back the response
-                let e = socket.write_all(&serde_json::to_vec(&response).unwrap());
+                let e = socket.write_all(&serde_json::to_vec(&response_bytes_to_hex(response)).unwrap());
                 if e.is_err() {
                     eprintln!("failed to write to socket; err = {:?}", e);
                     break;

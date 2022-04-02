@@ -20,7 +20,7 @@ class TMPCClient:
         self.writer.write(bytes(data, encoding="utf-8"))
 
     async def receive_data(self):
-        return (await self.reader.read(255)).decode()
+        return (await self.reader.read(2000)).decode()
 
     def close(self):
         self.writer.close()
@@ -48,7 +48,7 @@ def verify_signature(filename: str, timestamp: str, signature: str):
     hash_of_document = hash_document(filename)
     digest = hashes.Hash(hashes.SHA256())
     digest.update(bytes(hash_of_document + timestamp, "utf-8"))
-        
+
     hash_to_verify = digest.finalize().hex()
 
     if hash_to_verify != signature:

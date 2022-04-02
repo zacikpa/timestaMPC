@@ -1180,6 +1180,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "curv-kzen",
+ "hex",
  "kzen-paillier",
  "multi-party-ecdsa",
  "serde",
