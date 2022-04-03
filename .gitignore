@@ -1,4 +1,5 @@
 .vscode
 venv
 .python-version
-*.cfg
+server-signer/*.cfg
+server/*.cfg
