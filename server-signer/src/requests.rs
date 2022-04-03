@@ -252,16 +252,6 @@ pub fn process_request(
             )
         },
 
-        (Context::SignContext0(_context), RequestType::Abort) => {
-            return (
-                Context::Empty,
-                ResponseWithBytes {
-                    response_type: ResponseType::Abort,
-                    data: Vec::new(),
-                },
-            );
-        }
-
         _ => (
             Context::Empty,
             ResponseWithBytes {

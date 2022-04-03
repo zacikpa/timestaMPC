@@ -38,18 +38,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut request_buf = vec![0; BUFFER_SIZE];
                 let size = socket.read(&mut request_buf).unwrap();
                 let request = serde_json::from_slice::<Request>(&request_buf[..size]);
-                println!("{:?}", request);
+                println!("Current context: {:?}", context);
+                println!("Got request: {:?}", request);
                 (context, response) = match request {
                     Ok(req) => process_request(&context, &config, req),
                     Err(_e) => (Context::Empty,
                                 ResponseWithBytes{response_type: ResponseType::Abort, data: Vec::new()})
                 };
-                println!("{:?}", context);
-                println!("{:?}", response);
+                let response_hex = response_bytes_to_hex(response);
+                println!("Sending response: {:?}", &response_hex);
+                println!("Changing context to: {:?}", context);
                 // Write back the response
-                let e = socket.write_all(&serde_json::to_vec(&response_bytes_to_hex(response)).unwrap());
+                let e = socket.write_all(&serde_json::to_vec(&response_hex).unwrap());
                 if e.is_err() {
-                    eprintln!("failed to write to socket; err = {:?}", e);
+                    eprintln!("Failed to write to socket; err = {:?}", e);
                     break;
                 }
         }
