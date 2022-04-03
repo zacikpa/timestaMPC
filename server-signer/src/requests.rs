@@ -19,8 +19,9 @@ use hex;
 pub struct Config {
     pub index: u16,
     pub context_path: String,
-    pub address: String,
-    pub parties: u16,
+    pub host: String,
+    pub port: u16,
+    pub num_parties: u16,
     pub threshold: u16,
     pub acceptable_seconds: i64,
 }
@@ -124,7 +125,7 @@ pub fn process_request(
     match (context, request.request_type) {
         (Context::Empty, RequestType::GenerateKey) => {
             //let (parties, threshold, index) = data_to_gen_info(request.data);
-            gg18_key_gen_1(config.parties, config.threshold, config.index)
+            gg18_key_gen_1(config.num_parties, config.threshold, config.index)
         }
 
         (Context::Empty, RequestType::InitSign) => {

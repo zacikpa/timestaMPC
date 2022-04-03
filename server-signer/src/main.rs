@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut response: ResponseWithBytes;
 
     // Bind to the socket
-    let listener = TcpListener::bind(&config.address).unwrap();
+    let listener = TcpListener::bind((&config.host[..], config.port)).unwrap();
 
     // Start listening to connections
     loop {

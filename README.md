@@ -30,8 +30,9 @@ file `signer0.cfg` for one of the signers may look as follows:
 {
 "index": 0,
 "context_path": "signer0",
-"address": "127.0.0.1:30000",
-"parties": 3,
+"host": "127.0.0.1",
+"port": 30000,
+"num_parties": 3,
 "threshold": 2,
 "acceptable_seconds": 60
 }
@@ -45,16 +46,16 @@ Once the signers are running, we must set up the manager. It also needs
 a configuration file, e.g., `server.cfg`:
 ```json
 {
-  "num_parties": 3,
-  "threshold": 2,
-  "host": "127.0.0.1",
-  "port": 15555,
-  "signers":
-  [
-    {"index": 0, "host": "127.0.0.1", "port": 30000},
-    {"index": 1, "host": "127.0.0.1", "port": 30001},
-    {"index": 2, "host": "127.0.0.1", "port": 30002}
-  ]
+	"num_parties": 3,
+	"threshold": 2,
+	"host": "127.0.0.1",
+	"port": 15555,
+	"signers":
+	[
+		{"index": 0, "host": "127.0.0.1", "port": 30000},
+		{"index": 1, "host": "127.0.0.1", "port": 30001},
+		{"index": 2, "host": "127.0.0.1", "port": 30002}
+	]
 }
 ```
 After the manager is run, it immediately establishes a connection with the
