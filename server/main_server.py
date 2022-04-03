@@ -123,6 +123,7 @@ async def _get_active_signers(config, signer_instances):
         await w.drain()
 
     active_signers = []
+    awake_signers = []
 
     for f in asyncio.as_completed([_get_signer(i, signer_instances) for i in range(config.get("num_parties"))]):
         index, response = await f
@@ -130,14 +131,17 @@ async def _get_active_signers(config, signer_instances):
         if current_missing > 0:
             current_missing -= 1
             active_signers.append(index)
-    return active_signers
+        awake_signers.append(index)
+
+    return active_signers, awake_signers
 
 
 def to_byte_array(data):
     return [x for x in bytes(data, 'utf-8')]
 
 
-async def mp_sign_init(hash, timestamp, signer_instances, active_signers):
+async def mp_sign_init(hash, timestamp, signer_instances, active_signers, awake_signers):
+    print("Active signers", active_signers)
     for index in active_signers:
         _, w = signer_instances[index]
         payload = build_payload("Sign", [bytes(active_signers).hex(), hash, timestamp.hex()])
@@ -145,6 +149,15 @@ async def mp_sign_init(hash, timestamp, signer_instances, active_signers):
         print(dump)
         w.write(dump)
         await w.drain()
+
+    for index, (r, w) in enumerate(signer_instances):
+        if index in awake_signers and index not in active_signers:
+            payload = build_payload("Abort", [])
+            dump = json.dumps(payload).encode('utf-8')
+            print(dump)
+            w.write(dump)
+            await w.drain()
+            await r.read(BUFFER_SIZE)
 
 
 async def mp_sign(config, signer_instances, active_signers):
@@ -174,8 +187,8 @@ async def signer_manager(config, signer_instances):
     while True:
         hash, timestamp = await TASK_QUEUE.get()
         print(hash, timestamp)
-        active_signers = await _get_active_signers(config, signer_instances)
-        await mp_sign_init(hash, timestamp, signer_instances, active_signers)
+        active_signers, awake_signers = await _get_active_signers(config, signer_instances)
+        await mp_sign_init(hash, timestamp, signer_instances, active_signers, awake_signers)
         signatures = await mp_sign(config, signer_instances, active_signers)
         print("Signing complete, signatures:", signatures)
         await SIGNATURE_QUEUE.put(signatures[0])
