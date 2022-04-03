@@ -23,9 +23,9 @@ cd server-signer
 cargo build --release
 ```
 ## Intended usage
-Firstly, one needs to set up the configuration files for the signers.
+First, one needs to set up configuration files for the signers.
 If we are going to do _2 out of 3_ threshold signing, the configuration
-file `signer0.cfg` for one of the signers may look as follows.
+file `signer0.cfg` for one of the signers may look as follows:
 ```json
 {
 "index": 0,
@@ -36,7 +36,7 @@ file `signer0.cfg` for one of the signers may look as follows.
 "acceptable_seconds": 60
 }
 ```
-The signer can than be run:
+The signer can then be run:
 ```bash
 cd server-signer
 ./target/release/server-signer signer0.cfg
