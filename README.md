@@ -46,14 +46,14 @@ a configuration file, e.g., `server.cfg`:
 ```json
 {
   "num_parties": 3,
-	"threshold": 2,
-	"host": "127.0.0.1",
-	"port": 15555,
-	"signers":
+  "threshold": 2,
+  "host": "127.0.0.1",
+  "port": 15555,
+  "signers":
   [
     {"index": 0, "host": "127.0.0.1", "port": 30000},
-		{"index": 1, "host": "127.0.0.1", "port": 30001},
-		{"index": 2, "host": "127.0.0.1", "port": 30002}
+    {"index": 1, "host": "127.0.0.1", "port": 30001},
+    {"index": 2, "host": "127.0.0.1", "port": 30002}
   ]
 }
 ```
