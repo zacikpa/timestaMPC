@@ -1,13 +1,16 @@
-use crate::key_gen::{
+use crate::gg18_key_gen::{
     gg18_key_gen_1, gg18_key_gen_2, gg18_key_gen_3, gg18_key_gen_4, gg18_key_gen_5, gg18_key_gen_6,
     GG18KeyGenContext1, GG18KeyGenContext2, GG18KeyGenContext3, GG18KeyGenContext4,
     GG18KeyGenContext5, GG18SignContext,
 };
-use crate::sign::{
+use crate::gg18_sign::{
     gg18_sign1, gg18_sign10, gg18_sign2, gg18_sign3, gg18_sign4, gg18_sign5, gg18_sign6,
     gg18_sign7, gg18_sign8, gg18_sign9, GG18SignContext1, GG18SignContext2, GG18SignContext3,
     GG18SignContext4, GG18SignContext5, GG18SignContext6, GG18SignContext7, GG18SignContext8,
     GG18SignContext9,
+};
+use crate::li17_key_gen::{
+    Li17KeyGenContext1, Li17KeyGenContext2, Li17KeyGenContext3, Li17SignContext,
 };
 use chrono::{Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
@@ -29,9 +32,11 @@ pub struct Config {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 enum RequestType {
     GenerateKey,
-    RegenerateKey,
     InitSign,
     Sign,
+    GenerateKey2p,
+    Refresh2p,
+    Sign2p,
     Abort,
 }
 
@@ -44,9 +49,11 @@ pub struct Request {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ResponseType {
     GenerateKey,
-    RegenerateKey,
     InitSign,
     Sign,
+    GenerateKey2p,
+    Refresh2p,
+    Sign2p,
     Abort,
 }
 
@@ -62,7 +69,6 @@ pub struct ResponseWithBytes {
     pub data: Vec<Vec<u8>>,
 }
 
-#[derive(Clone, Debug)]
 pub enum Context {
     Empty,
     GenContext1(GG18KeyGenContext1),
@@ -80,6 +86,10 @@ pub enum Context {
     SignContext7(GG18SignContext7),
     SignContext8(GG18SignContext8),
     SignContext9(GG18SignContext9),
+    Gen2pContext1(Li17KeyGenContext1),
+    Gen2pContext2(Li17KeyGenContext2),
+    Gen2pContext3(Li17KeyGenContext3),
+    Sign2pContext0(Li17SignContext),
 }
 
 /*

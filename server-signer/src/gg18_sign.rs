@@ -15,7 +15,7 @@ use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
 use paillier::EncryptionKey;
 use multi_party_ecdsa::utilities::mta::*;
 use sha2::Sha256;
-use crate::key_gen::GG18SignContext;
+use crate::gg18_key_gen::GG18SignContext;
 use crate::requests::{ResponseWithBytes, Context, ResponseType};
 
 #[derive(Clone, Debug)]
