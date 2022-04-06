@@ -18,8 +18,8 @@ pub struct Li17RefreshContext1 {
     public_p1: Point<Secp256k1>,
     public_p2: Point<Secp256k1>,
     p1_private: Option<party_one::Party1Private>,
-    p2_private: Option<party_two::Party2Private>,
-    p2_paillier_public: Option<party_two::PaillierPublic>,
+    p2_private: Vec<u8>, //Option<party_two::Party2Private>,
+    p2_paillier_public: Vec<u8>, //Option<party_two::PaillierPublic>,
     p1_m1: Option<Scalar<Secp256k1>>,
     p1_r1: Option<Scalar<Secp256k1>>
 
@@ -33,8 +33,8 @@ pub struct Li17RefreshContext2 {
     public_p1: Point<Secp256k1>,
     public_p2: Point<Secp256k1>,
     p1_private: Option<party_one::Party1Private>,
-    p2_private: Option<party_two::Party2Private>,
-    p2_paillier_public: Option<party_two::PaillierPublic>,
+    p2_private: Vec<u8>, //Option<party_two::Party2Private>,
+    p2_paillier_public: Vec<u8>, //Option<party_two::PaillierPublic>,
     p1_m1: Option<Scalar<Secp256k1>>,
     p1_r1: Option<Scalar<Secp256k1>>,
     p2_coin_flip_first_message: Option<Li17RefreshMsg2>,
@@ -50,8 +50,8 @@ pub struct Li17RefreshContext3 {
     public_p1: Point<Secp256k1>,
     public_p2: Point<Secp256k1>,
     p1_private: Option<party_one::Party1Private>,
-    p2_private: Option<party_two::Party2Private>,
-    p2_paillier_public: Option<party_two::PaillierPublic>,
+    p2_private: Vec<u8>, //Option<party_two::Party2Private>,
+    p2_paillier_public: Vec<u8>, //Option<party_two::PaillierPublic>,
     p2_coin_flip_first_message: Option<Li17RefreshMsg2>,
     p2_msg1_from_p1: Option<coin_flip_optimal_rounds::Party1FirstMessage::<Secp256k1, Sha256>>
 }
@@ -79,7 +79,7 @@ pub fn li17_refresh1( context: Li17SignContext ) -> (Context, ResponseWithBytes)
         if m.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        (Context::Refresh2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                             data: vec!(m.unwrap())})
 
     } else {
@@ -94,32 +94,35 @@ pub fn li17_refresh1( context: Li17SignContext ) -> (Context, ResponseWithBytes)
             p1_m1: None,
             p1_r1: None,
         };
-        (Context::Refresh2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                             data: Vec::new()})
     }
 }
 
-pub fn li17_refresh2( msg: Vec<u8>,context: Li17RefreshContext1 ) -> (Context, ResponseWithBytes) {
+pub fn li17_refresh2( msg: Vec<Vec<u8>>,context: &Li17RefreshContext1 ) -> (Context, ResponseWithBytes) {
 
     if context.index == 0 {
         let context2 = Li17RefreshContext2 {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1,
-            public_p2: context.public_p2,
-            p1_private: context.p1_private,
-            p2_private: context.p2_private,
-            p2_paillier_public: context.p2_paillier_public,
-            p1_m1: context.p1_m1,
-            p1_r1: context.p1_r1,
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone(),
+            public_p2: context.public_p2.clone(),
+            p1_private: context.p1_private.clone(),
+            p2_private: context.p2_private.clone(),
+            p2_paillier_public: context.p2_paillier_public.clone(),
+            p1_m1: context.p1_m1.clone(),
+            p1_r1: context.p1_r1.clone(),
             p2_coin_flip_first_message: None,
             p2_msg1_from_p1: None,
         };
-        (Context::Refresh2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                             data: Vec::new()})
 
     } else {
-        let msg = serde_json::from_slice::<Li17RefreshMsg1>(&msg);
+        if msg.is_empty() {
+            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        }
+        let msg = serde_json::from_slice::<Li17RefreshMsg1>(&msg[0]);
         if msg.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
         }
@@ -127,12 +130,12 @@ pub fn li17_refresh2( msg: Vec<u8>,context: Li17RefreshContext1 ) -> (Context, R
         let p2_coin_flip_first_message = coin_flip_optimal_rounds::Party2FirstMessage::share(&msg.proof);
         let context2 = Li17RefreshContext2 {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1,
-            public_p2: context.public_p2,
-            p1_private: context.p1_private,
-            p2_private: context.p2_private,
-            p2_paillier_public: context.p2_paillier_public,
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone(),
+            public_p2: context.public_p2.clone(),
+            p1_private: context.p1_private.clone(),
+            p2_private: context.p2_private.clone(),
+            p2_paillier_public: context.p2_paillier_public.clone(),
             p1_m1: None,
             p1_r1: None,
             p2_coin_flip_first_message: Some(p2_coin_flip_first_message.clone()),
@@ -142,39 +145,42 @@ pub fn li17_refresh2( msg: Vec<u8>,context: Li17RefreshContext1 ) -> (Context, R
         if m.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        (Context::Refresh2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                             data: vec!(m.unwrap())})
 
     }
 }
 
-pub fn li17_refresh3( msg: Vec<u8>,context: Li17RefreshContext2 ) -> (Context, ResponseWithBytes) {
+pub fn li17_refresh3( msg: Vec<Vec<u8>>,context: &Li17RefreshContext2 ) -> (Context, ResponseWithBytes) {
 
     if context.index == 0 {
-        let msg = serde_json::from_slice::<Li17RefreshMsg2>(&msg);
+        if msg.is_empty() {
+            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        }
+        let msg = serde_json::from_slice::<Li17RefreshMsg2>(&msg[0]);
         if msg.is_err() || context.p1_m1.is_none() || context.p1_r1.is_none() || context.p1_private.is_none(){
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
         }
         let msg = msg.unwrap();
 
         let (p1_second_message, res) = coin_flip_optimal_rounds::Party1SecondMessage::<Secp256k1, Sha256>::reveal(
-                            &msg.seed, &context.p1_m1.unwrap(), &context.p1_r1.unwrap());
+                            &msg.seed, &context.p1_m1.clone().unwrap(), &context.p1_r1.clone().unwrap());
 
 
         let (ek_new, c_key_new, new_private, correct_key_proof,
             pdl_statement, pdl_proof, composite_dlog_proof,) =
-            party_one::Party1Private::refresh_private_key(&context.p1_private.unwrap(), &res.to_bigint());
+            party_one::Party1Private::refresh_private_key(&context.p1_private.clone().unwrap(), &res.to_bigint());
 
         let context3 = Li17RefreshContext3 {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1 * &res,
-            public_p2: context.public_p2 * &res.invert().unwrap(),
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone() * &res,
+            public_p2: context.public_p2.clone() * &res.invert().unwrap(),
             p1_private: Some(new_private),
-            p2_private: context.p2_private,
-            p2_paillier_public: context.p2_paillier_public,
-            p2_coin_flip_first_message: context.p2_coin_flip_first_message,
-            p2_msg1_from_p1: context.p2_msg1_from_p1,
+            p2_private: context.p2_private.clone(),
+            p2_paillier_public: context.p2_paillier_public.clone(),
+            p2_coin_flip_first_message: context.p2_coin_flip_first_message.clone(),
+            p2_msg1_from_p1: context.p2_msg1_from_p1.clone(),
         };
 
         let m = serde_json::to_vec(&(p1_second_message, correct_key_proof, pdl_statement,
@@ -182,59 +188,63 @@ pub fn li17_refresh3( msg: Vec<u8>,context: Li17RefreshContext2 ) -> (Context, R
         if m.is_err() {
          return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        (Context::Refresh2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                          data: vec!(m.unwrap())})
 
     } else {
         let context3 = Li17RefreshContext3 {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1,
-            public_p2: context.public_p2,
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone(),
+            public_p2: context.public_p2.clone(),
             p1_private: None,
-            p2_private: context.p2_private,
-            p2_paillier_public: context.p2_paillier_public,
-            p2_coin_flip_first_message: context.p2_coin_flip_first_message,
-            p2_msg1_from_p1: context.p2_msg1_from_p1,
+            p2_private: context.p2_private.clone(),
+            p2_paillier_public: context.p2_paillier_public.clone(),
+            p2_coin_flip_first_message: context.p2_coin_flip_first_message.clone(),
+            p2_msg1_from_p1: context.p2_msg1_from_p1.clone(),
         };
 
-        (Context::Refresh2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Refresh2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
                                                                   data: Vec::new()})
 
     }
 }
 
-pub fn li17_refresh4( msg: Vec<u8>,context: Li17RefreshContext3 ) -> Result<Li17SignContext, &'static str> {
+pub fn li17_refresh4( msg: Vec<Vec<u8>>,context: &Li17RefreshContext3 ) -> Result<Li17SignContext, &'static str> {
 
     if context.index == 0 {
 
         let sign_context = Li17SignContext {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1,
-            public_p2: context.public_p2,
-            p1_private: context.p1_private,
-            p2_private: context.p2_private,
-            p2_paillier_public: context.p2_paillier_public,
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone(),
+            public_p2: context.public_p2.clone(),
+            p1_private: context.p1_private.clone(),
+            p2_private: context.p2_private.clone(),
+            p2_paillier_public: context.p2_paillier_public.clone(),
         };
 
         return Ok(sign_context)
 
     } else {
-        let msg = serde_json::from_slice::<Li17RefreshMsg3>(&msg);
+        if msg.is_empty() {
+            return Err("empty message")
+        }
+        let msg = serde_json::from_slice::<Li17RefreshMsg3>(&msg[0]);
         if msg.is_err() {
             return Err("failed to parse a message")
         }
         let msg = msg.unwrap();
-
+        let p2_private = serde_json::from_slice::<party_two::Party2Private>(&context.p2_private);
         if context.p2_coin_flip_first_message.is_none() || context.p2_msg1_from_p1.is_none()
-           || context.p2_private.is_none() {
+           || p2_private.is_err() {
             return Err("invalid context")
         }
+        let p2_private = p2_private.unwrap();
         let res = coin_flip_optimal_rounds::finalize(
             &msg.0.proof,
-            &context.p2_coin_flip_first_message.unwrap().seed,
-            &context.p2_msg1_from_p1.unwrap().proof.com,
+            &context.p2_coin_flip_first_message.clone().unwrap().seed,
+            &context.p2_msg1_from_p1.clone().unwrap().proof.com,
         );
         let party_two_paillier = party_two::PaillierPublic {
             ek: msg.5.clone(),
@@ -252,15 +262,15 @@ pub fn li17_refresh4( msg: Vec<u8>,context: Li17RefreshContext3 ) -> Result<Li17
 
         let sign_context = Li17SignContext {
             index: context.index,
-            public: context.public,
-            public_p1: context.public_p1 * &res,
-            public_p2: context.public_p2 * &res.invert().unwrap(),
+            public: context.public.clone(),
+            public_p1: context.public_p1.clone() * &res,
+            public_p2: context.public_p2.clone() * &res.invert().unwrap(),
             p1_private: None,
-            p2_private: Some(party_two::Party2Private::update_private_key(
-                &context.p2_private.unwrap(),
+            p2_private: serde_json::to_vec(&party_two::Party2Private::update_private_key(
+                &p2_private,
                 &res.invert().unwrap().to_bigint(),
-            )),
-            p2_paillier_public: Some(party_two_paillier),
+            )).unwrap(),
+            p2_paillier_public: serde_json::to_vec(&party_two_paillier).unwrap(),
         };
         Ok(sign_context)
     }

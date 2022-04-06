@@ -32,7 +32,7 @@ pub type Li17KeyGenMsg2 = party_two::KeyGenFirstMsg;
 pub struct Li17KeyGenContext3 {
     index: u16,
     p1_ec_key_pair: Option<party_one::EcKeyPair>,
-    p1_paillier_key_pair: Option<party_one::PaillierKeyPair>,
+    p1_paillier_key_pair: Vec<u8>,//party_one::PaillierKeyPair,
     p1_public_share_p2: Option<Point<Secp256k1>>,
     p2_msg1_from_p1: Option<party_one::KeyGenFirstMsg>,
     p2_ec_key_pair: Option<party_two::EcKeyPair>,
@@ -48,12 +48,10 @@ pub struct Li17SignContext {
     pub public_p1: Point<Secp256k1>,
     pub public_p2: Point<Secp256k1>,
     pub p1_private: Option<party_one::Party1Private>,
-    pub p2_private: Option<party_two::Party2Private>,
-    pub p2_paillier_public: Option<party_two::PaillierPublic>,
+    pub p2_private: Vec<u8>, //Option<party_two::Party2Private>,
+    pub p2_paillier_public: Vec<u8> //Option<party_two::PaillierPublic>,
 
 }
-
-pub type Li17KeyGenMsg4 = Point<Secp256k1>;
 
 
 pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
@@ -73,7 +71,7 @@ pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
         if m.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: vec!(m.unwrap())})
     } else {
 
@@ -82,25 +80,28 @@ pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
             p1_ec_key_pair: None,
             p1_comm_witness: None,
         };
-        (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: Vec::new()})
     }
 }
 
-pub fn li17_key_gen2( msg: Vec<u8>, context: Li17KeyGenContext1 ) -> (Context, ResponseWithBytes) {
+pub fn li17_key_gen2( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext1 ) -> (Context, ResponseWithBytes) {
 
     if context.index == 0 {
         let context2 = Li17KeyGenContext2 {
             index: 0,
-            p1_ec_key_pair: context.p1_ec_key_pair,
-            p1_comm_witness: context.p1_comm_witness,
+            p1_ec_key_pair: context.p1_ec_key_pair.clone(),
+            p1_comm_witness: context.p1_comm_witness.clone(),
             p2_msg1_from_p1: None,
             p2_ec_key_pair: None,
         };
-        (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: Vec::new()})
     } else {
-        let msg = serde_json::from_slice::<Li17KeyGenMsg1>(&msg);
+        if msg.is_empty() {
+            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        }
+        let msg = serde_json::from_slice::<Li17KeyGenMsg1>(&msg[0]);
         if msg.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
         }
@@ -119,16 +120,19 @@ pub fn li17_key_gen2( msg: Vec<u8>, context: Li17KeyGenContext1 ) -> (Context, R
         if m.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: vec!(m.unwrap())})
 
     }
 }
 
-pub fn li17_key_gen3( msg: Vec<u8>, context: Li17KeyGenContext2 ) -> (Context, ResponseWithBytes) {
+pub fn li17_key_gen3( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext2 ) -> (Context, ResponseWithBytes) {
 
     if context.index == 0 {
-        let msg = serde_json::from_slice::<Li17KeyGenMsg2>(&msg);
+        if msg.is_empty() {
+            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        }
+        let msg = serde_json::from_slice::<Li17KeyGenMsg2>(&msg[0]);
         if msg.is_err() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
         }
@@ -137,7 +141,8 @@ pub fn li17_key_gen3( msg: Vec<u8>, context: Li17KeyGenContext2 ) -> (Context, R
         if context.p1_comm_witness.is_none() || context.p1_ec_key_pair.is_none() {
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
         }
-        let p1_second_message = party_one::KeyGenSecondMsg::verify_and_decommit(context.p1_comm_witness.unwrap(), &msg.d_log_proof);
+        let p1_second_message = party_one::KeyGenSecondMsg::verify_and_decommit(
+                                        context.p1_comm_witness.clone().unwrap(), &msg.d_log_proof);
 
         if p1_second_message.is_err(){
             return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
@@ -155,8 +160,8 @@ pub fn li17_key_gen3( msg: Vec<u8>, context: Li17KeyGenContext2 ) -> (Context, R
         let encrypted_share = paillier_key_pair.encrypted_share.clone();
         let context3 = Li17KeyGenContext3 {
             index: 0,
-            p1_ec_key_pair: context.p1_ec_key_pair,
-            p1_paillier_key_pair: Some(paillier_key_pair),
+            p1_ec_key_pair: context.p1_ec_key_pair.clone(),
+            p1_paillier_key_pair: serde_json::to_vec(&paillier_key_pair).unwrap(),
             p1_public_share_p2: Some(msg.public_share),
             p2_msg1_from_p1: None,
             p2_ec_key_pair: None,
@@ -168,48 +173,59 @@ pub fn li17_key_gen3( msg: Vec<u8>, context: Li17KeyGenContext2 ) -> (Context, R
        if m.is_err() {
            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
        }
-       (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+       (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                            data: vec!(m.unwrap())})
 
 
     } else {
+        // PaillierKeyPair does not derive trait Clone which complicates working with Option<PaillierKeyPair>
+        // in a reference to context. This is a terrible but working workaround.
+        let (_, _, _not_used_) = party_one::KeyGenFirstMsg::create_commitments();
+        let _not_used_ = party_one::PaillierKeyPair::generate_keypair_and_encrypted_share(&_not_used_);
+
         let context3 = Li17KeyGenContext3 {
             index: 1,
             p1_ec_key_pair: None,
-            p1_paillier_key_pair: None,
+            p1_paillier_key_pair: Vec::new(),
             p1_public_share_p2: None,
-            p2_msg1_from_p1: context.p2_msg1_from_p1,
-            p2_ec_key_pair: context.p2_ec_key_pair,
+            p2_msg1_from_p1: context.p2_msg1_from_p1.clone(),
+            p2_ec_key_pair: context.p2_ec_key_pair.clone(),
 
         };
-        (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
+        (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: Vec::new()})
     }
 }
 
-pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> Result<Li17SignContext, &'static str> {
+pub fn li17_key_gen4( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext3 ) -> Result<Li17SignContext, &'static str> {
 
     if context.index == 0 {
-        if context.p1_ec_key_pair.is_none() || context.p1_paillier_key_pair.is_none()
-           || context.p1_public_share_p2.is_none() {
+        let p1_paillier_key_pair = serde_json::from_slice::<party_one::PaillierKeyPair>(
+                                                                    &context.p1_paillier_key_pair);
+        if context.p1_ec_key_pair.is_none() || context.p1_public_share_p2.is_none()
+           || p1_paillier_key_pair.is_err() {
                return Err("invalid context")
         }
+        let p1_paillier_key_pair = p1_paillier_key_pair.unwrap();
         let party_one_private = party_one::Party1Private::set_private_key(&context.p1_ec_key_pair.clone().unwrap(),
-                                                                    &context.p1_paillier_key_pair.unwrap());
+                                                                &p1_paillier_key_pair);
         let public_key = party_one::compute_pubkey(&party_one_private, &context.p1_public_share_p2.clone().unwrap());
         let sign_context = Li17SignContext {
             index: 0,
             public: public_key.clone(),
-            public_p1: context.p1_ec_key_pair.unwrap().public_share,
-            public_p2: context.p1_public_share_p2.unwrap(),
+            public_p1: context.p1_ec_key_pair.clone().unwrap().public_share,
+            public_p2: context.p1_public_share_p2.clone().unwrap(),
             p1_private: Some(party_one_private),
-            p2_private: None,
-            p2_paillier_public: None,
+            p2_private: Vec::new(),
+            p2_paillier_public: Vec::new(),
         };
         Ok(sign_context)
 
     } else {
-        let msg = serde_json::from_slice::<Li17KeyGenMsg3>(&msg);
+        if msg.is_empty() {
+            return Err("Empty message")
+        }
+        let msg = serde_json::from_slice::<Li17KeyGenMsg3>(&msg[0]);
         if msg.is_err() {
             return Err("failed to parse a message")
         }
@@ -223,7 +239,7 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> Result<Li17
 
         let p2_ec_key_pair = context.p2_ec_key_pair.clone().unwrap();
     	let r = party_two::KeyGenSecondMsg::verify_commitments_and_dlog_proof(
-                            &context.p2_msg1_from_p1.unwrap(),
+                            &context.p2_msg1_from_p1.clone().unwrap(),
                             &party_one_second_message,
                         );
 
@@ -258,10 +274,10 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> Result<Li17
             index: 1,
             public: public_key.clone(),
             public_p1: party_one_second_message.comm_witness.public_share,
-            public_p2: context.p2_ec_key_pair.unwrap().public_share,
+            public_p2: context.p2_ec_key_pair.clone().unwrap().public_share,
             p1_private: None,
-            p2_private: Some(party_two_private),
-            p2_paillier_public: Some(party_two_paillier)
+            p2_private: serde_json::to_vec(&party_two_private).unwrap(),
+            p2_paillier_public: serde_json::to_vec(&party_two_paillier).unwrap()
         };
 
         Ok(sign_context)
