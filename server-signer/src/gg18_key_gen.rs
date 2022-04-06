@@ -11,7 +11,7 @@ use paillier::EncryptionKey;
 use sha2::Sha256;
 use serde::{Serialize, Deserialize};
 
-use crate::requests::{ResponseWithBytes, Context, ResponseType};
+use crate::requests::{ResponseWithBytes, Context, ResponseType, ABORT};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GG18KeyGenContext1 {
@@ -111,7 +111,7 @@ pub fn gg18_key_gen_1(parties : u16, threshold : u16, index : u16) -> (Context, 
     };
     let m = serde_json::to_vec(&bc_i);
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::GenContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
                                         data: vec!(m.unwrap())})
@@ -123,7 +123,7 @@ pub fn gg18_key_gen_2(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext1) -> (
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let (bc_i, decom_i) = (context.bc_i.clone(), context.decom_i.clone());
@@ -143,7 +143,7 @@ pub fn gg18_key_gen_2(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext1) -> (
 
     let m = serde_json::to_vec(&decom_i);
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::GenContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
                                         data: vec!(m.unwrap())})
@@ -158,7 +158,7 @@ pub fn gg18_key_gen_3(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext2) -> (
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -191,7 +191,7 @@ pub fn gg18_key_gen_3(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext2) -> (
             &params, &decom_vec, &context.bc1_vec);
 
     if result.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let (vss_scheme, secret_shares, _index) = result.unwrap();
@@ -216,7 +216,7 @@ pub fn gg18_key_gen_3(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext2) -> (
            .map(|x| serde_json::to_vec(&x).ok())
            .collect();
     if m.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::GenContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey, data: m.unwrap()})
 }
@@ -227,7 +227,7 @@ pub fn gg18_key_gen_4(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext3) -> (
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let mut party_shares = messages.unwrap();
@@ -247,7 +247,7 @@ pub fn gg18_key_gen_4(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext3) -> (
 
     let m = serde_json::to_vec(&context4.vss_scheme.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::GenContext4(context4), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
                                         data: vec!(m.unwrap())})
@@ -259,7 +259,7 @@ pub fn gg18_key_gen_5(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext4) -> (
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let params = Parameters {
@@ -279,7 +279,7 @@ pub fn gg18_key_gen_5(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext4) -> (
         );
 
     if result.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let (shared_keys, dlog_proof) = result.unwrap();
@@ -299,7 +299,7 @@ pub fn gg18_key_gen_5(messages: Vec<Vec<u8>>, context: &GG18KeyGenContext4) -> (
 
     let m = serde_json::to_vec(&context5.dlog_proof.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::GenContext5(context5), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
                                         data: vec!(m.unwrap())})

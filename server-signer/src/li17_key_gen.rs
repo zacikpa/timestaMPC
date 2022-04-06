@@ -7,7 +7,7 @@ use zk_paillier::zkproofs::CompositeDLogProof;
 use zk_paillier::zkproofs::NiCorrectKeyProof;
 use curv::elliptic::curves::{secp256_k1::Secp256k1, Point};
 use serde::{Serialize, Deserialize};
-use crate::requests::{ResponseWithBytes, Context, ResponseType};
+use crate::requests::{ResponseWithBytes, Context, ResponseType, ABORT};
 
 #[derive(Clone, Debug)]
 pub struct Li17KeyGenContext1 {
@@ -56,7 +56,7 @@ pub struct Li17SignContext {
 
 pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
     if index > 1 {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+        return ABORT
     }
 
     if index == 0 {
@@ -69,7 +69,7 @@ pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
         };
         let m = serde_json::to_vec(&party1_first_message);
         if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: vec!(m.unwrap())})
@@ -99,11 +99,11 @@ pub fn li17_key_gen2( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext1 ) -> (Cont
                                             data: Vec::new()})
     } else {
         if msg.is_empty() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = serde_json::from_slice::<Li17KeyGenMsg1>(&msg[0]);
         if msg.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = msg.unwrap();
 
@@ -118,7 +118,7 @@ pub fn li17_key_gen2( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext1 ) -> (Cont
         };
         let m = serde_json::to_vec(&p2_first_message);
         if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: vec!(m.unwrap())})
@@ -130,22 +130,22 @@ pub fn li17_key_gen3( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext2 ) -> (Cont
 
     if context.index == 0 {
         if msg.is_empty() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = serde_json::from_slice::<Li17KeyGenMsg2>(&msg[0]);
         if msg.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = msg.unwrap();
 
         if context.p1_comm_witness.is_none() || context.p1_ec_key_pair.is_none() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         let p1_second_message = party_one::KeyGenSecondMsg::verify_and_decommit(
                                         context.p1_comm_witness.clone().unwrap(), &msg.d_log_proof);
 
         if p1_second_message.is_err(){
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         let p1_second_message = p1_second_message.unwrap();
         let p1_ec_key_pair = context.p1_ec_key_pair.clone().unwrap();
@@ -158,10 +158,15 @@ pub fn li17_key_gen3( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext2 ) -> (Cont
                     party_one::PaillierKeyPair::pdl_proof(&party_one_private, &paillier_key_pair);
         let ek = paillier_key_pair.ek.clone();
         let encrypted_share = paillier_key_pair.encrypted_share.clone();
+
+        let p1_paillier_key_pair = serde_json::to_vec(&paillier_key_pair);
+        if p1_paillier_key_pair.is_err() {
+            return ABORT
+        }
         let context3 = Li17KeyGenContext3 {
             index: 0,
             p1_ec_key_pair: context.p1_ec_key_pair.clone(),
-            p1_paillier_key_pair: serde_json::to_vec(&paillier_key_pair).unwrap(),
+            p1_paillier_key_pair: p1_paillier_key_pair.unwrap(),
             p1_public_share_p2: Some(msg.public_share),
             p2_msg1_from_p1: None,
             p2_ec_key_pair: None,
@@ -171,7 +176,7 @@ pub fn li17_key_gen3( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext2 ) -> (Cont
        let m = serde_json::to_vec(&(p1_second_message, correct_key_proof, pdl_statement, pdl_proof,
                                     composite_dlog_proof, ek, encrypted_share));
        if m.is_err() {
-           return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+           return ABORT
        }
        (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                            data: vec!(m.unwrap())})
@@ -269,15 +274,19 @@ pub fn li17_key_gen4( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext3 ) -> Resul
 
         let party_two_private = party_two::Party2Private::set_private_key(&p2_ec_key_pair);
         let public_key = party_two::compute_pubkey(&p2_ec_key_pair, &party_one_second_message.comm_witness.public_share);
-
+        let p2_private = serde_json::to_vec(&party_two_private);
+        let p2_paillier_public = serde_json::to_vec(&party_two_paillier);
+        if p2_private.is_err() || p2_paillier_public.is_err() {
+            return Err("Serde failed")
+        }
         let sign_context = Li17SignContext {
             index: 1,
             public: public_key.clone(),
             public_p1: party_one_second_message.comm_witness.public_share,
             public_p2: context.p2_ec_key_pair.clone().unwrap().public_share,
             p1_private: None,
-            p2_private: serde_json::to_vec(&party_two_private).unwrap(),
-            p2_paillier_public: serde_json::to_vec(&party_two_paillier).unwrap()
+            p2_private: p2_private.unwrap(),
+            p2_paillier_public: p2_paillier_public.unwrap()
         };
 
         Ok(sign_context)

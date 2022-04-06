@@ -3,7 +3,7 @@ use multi_party_ecdsa::protocols::two_party_ecdsa::lindell_2017::*;
 use curv::BigInt;
 use curv::arithmetic::traits::*;
 use curv::elliptic::curves::{secp256_k1::Secp256k1, Point};
-use crate::requests::{ResponseWithBytes, Context, ResponseType};
+use crate::requests::{ResponseWithBytes, Context, ResponseType, ABORT};
 
 pub struct Li17SignContext1 {
     pub index: u16,
@@ -51,7 +51,7 @@ pub type Li17SignMsg3 = (party_two::PartialSig, party_two::EphKeyGenSecondMsg);
 pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Context, ResponseWithBytes) {
 
     if message_hash.is_empty() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     if context.index == 0 {
@@ -84,7 +84,7 @@ pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Co
         };
         let m = serde_json::to_vec(&eph_party_two_first_message);
         if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         (Context::Sign2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::Sign2p,
                                             data: vec!(m.unwrap())})
@@ -95,11 +95,11 @@ pub fn li17_sign2( msg: Vec<Vec<u8>>, context: &Li17SignContext1) -> (Context, R
 
     if context.index == 0 {
         if msg.is_empty() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = serde_json::from_slice::<Li17SignMsg1>(&msg[0]);
         if msg.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = msg.unwrap();
 
@@ -119,7 +119,7 @@ pub fn li17_sign2( msg: Vec<Vec<u8>>, context: &Li17SignContext1) -> (Context, R
         };
         let m = serde_json::to_vec(&eph_party_one_first_message);
         if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         (Context::Sign2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::Sign2p,
                                             data: vec!(m.unwrap())})
@@ -161,17 +161,17 @@ pub fn li17_sign3( msg: Vec<Vec<u8>>, context: &Li17SignContext2) -> (Context, R
 
     } else {
         if msg.is_empty() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return ABORT
         }
         let msg = serde_json::from_slice::<Li17SignMsg2>(&msg[0]);
         if msg.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         let p2_paillier_public = serde_json::from_slice::<party_two::PaillierPublic>(&context.p2_paillier_public);
         let p2_private = serde_json::from_slice::<party_two::Party2Private>(&context.p2_private);
         if context.p2_eph_comm_witness.is_none() || context.p2_eph_ec_key_pair.is_none()
-           || p2_private.is_err() || context.p2_eph_ec_key_pair.is_none() || p2_paillier_public.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+           || p2_private.is_err() || p2_paillier_public.is_err() {
+            return ABORT
         }
         let msg = msg.unwrap();
         let p2_paillier_public = p2_paillier_public.unwrap();
@@ -186,7 +186,7 @@ pub fn li17_sign3( msg: Vec<Vec<u8>>, context: &Li17SignContext2) -> (Context, R
             );
 
         if eph_party_two_second_message.is_err(){
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
 
         let partial_sig = party_two::PartialSig::compute(
@@ -197,13 +197,17 @@ pub fn li17_sign3( msg: Vec<Vec<u8>>, context: &Li17SignContext2) -> (Context, R
             &msg.public_share,
             &context.hash,
         );
-
+        let p2_private = serde_json::to_vec(&p2_private);
+        let p2_paillier_public = serde_json::to_vec(&p2_paillier_public);
+        if p2_private.is_err() || p2_paillier_public.is_err() {
+            return ABORT
+        }
         let context3 = Li17SignContext3 {
             index: 1,
             public: context.public.clone(),
             p1_private: context.p1_private.clone(),
-            p2_private: serde_json::to_vec(&p2_private).unwrap(),
-            p2_paillier_public: serde_json::to_vec(&p2_paillier_public).unwrap(),
+            p2_private: p2_private.unwrap(),
+            p2_paillier_public: p2_paillier_public.unwrap(),
             hash: context.hash.clone(),
             p1_eph_ec_key_pair: None,
             p1_msg1_from_p2: None,
@@ -212,7 +216,7 @@ pub fn li17_sign3( msg: Vec<Vec<u8>>, context: &Li17SignContext2) -> (Context, R
 
         let m = serde_json::to_vec(&(partial_sig, eph_party_two_second_message.unwrap()));
         if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return ABORT
         }
         (Context::Sign2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::Sign2p,
                                             data: vec!(m.unwrap())})

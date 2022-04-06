@@ -106,11 +106,13 @@ pub enum Context {
     Refresh2pContext3(Li17RefreshContext3),
 }
 
-/*
-fn data_to_gen_info(_data: Vec<Vec<u8>>) -> (u16, u16, u16) {
-    (PARTIES, THRESHOLD, INDEX)
-}
-*/
+pub const ABORT : (Context, ResponseWithBytes) = (
+    Context::Empty,
+    ResponseWithBytes {
+        response_type: ResponseType::Abort,
+        data: Vec::new(),
+    },
+);
 
 fn check_time(config: &Config, time_data: Vec<u8>) -> bool {
     let str_timestamp = match std::str::from_utf8(&time_data) {
@@ -141,14 +143,18 @@ pub fn process_request(
     config: &Config,
     request: Request,
 ) -> (Context, ResponseWithBytes) {
-    let request_data = request.data
+    let request_data : Option<Vec<Vec<u8>>>= request.data
         .iter()
-        .map(|x| hex::decode(x).unwrap())
+        .map(|x| hex::decode(x).ok())
         .collect();
 
+    if request_data.is_none() {
+        eprintln!("Failed to decode data.");
+        return ABORT
+    }
+    let request_data = request_data.unwrap();
     match (context, request.request_type) {
         (Context::Empty, RequestType::GenerateKey) => {
-            //let (parties, threshold, index) = data_to_gen_info(request.data);
             gg18_key_gen_1(config.num_parties, config.threshold, config.index)
         }
 
@@ -156,24 +162,12 @@ pub fn process_request(
             let data = fs::read_to_string(&config.context_path);
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             let context = serde_json::from_str::<GG18SignContext>(&data.unwrap());
             if context.is_err() {
                 eprintln!("Failed to parse setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             (
                 Context::SignContext0(context.unwrap()),
@@ -197,28 +191,28 @@ pub fn process_request(
             gg18_key_gen_5(request_data, context),
 
         (Context::GenContext5(context), RequestType::GenerateKey) => {
-            let c = gg18_key_gen_6(request_data, context).unwrap();
-            fs::write(&config.context_path, serde_json::to_string(&c).unwrap())
-                .expect("Unable to save setup file.");
-
-            (
-                Context::Empty,
-                ResponseWithBytes {
-                    response_type: ResponseType::GenerateKey,
-                    data: vec![serde_json::to_vec(&c.pk).unwrap()],
-                },
-            )
+            let c = gg18_key_gen_6(request_data, context);
+            if c.is_ok() {
+                let c = c.unwrap();
+                let serde = serde_json::to_string(&c);
+                if serde.is_ok() {
+                    if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                        return (
+                            Context::Empty,
+                            ResponseWithBytes {
+                                response_type: ResponseType::GenerateKey,
+                                data: vec![serde_json::to_vec(&c.pk).unwrap()],
+                            },
+                        )
+                    }
+                }
+            }
+            ABORT
         }
 
         (Context::SignContext0(context), RequestType::Sign) => {
             if request.data.len() < 3 || !check_time(config, request_data[2].clone()) {
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             let mut hasher = Sha256::new();
             hasher.update(request_data[1].clone());
@@ -255,13 +249,7 @@ pub fn process_request(
         (Context::SignContext9(context), RequestType::Sign) => {
             let s = gg18_sign10(request_data, context);
             if s.is_err() {
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             (
                 Context::Empty,
@@ -274,13 +262,7 @@ pub fn process_request(
 
         (Context::Empty, RequestType::GenerateKey2p) => {
             if config.threshold != 2 || config.num_parties != 2 {
-                (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                )
+                ABORT
             } else {
                 li17_key_gen1(config.index)
             }
@@ -293,41 +275,35 @@ pub fn process_request(
             li17_key_gen3(request_data, context),
 
         (Context::Gen2pContext3(context), RequestType::GenerateKey2p) => {
-            let c = li17_key_gen4(request_data, context).unwrap();
-            fs::write(&config.context_path, serde_json::to_string(&c).unwrap())
-                .expect("Unable to save setup file.");
-
-            (
-                Context::Empty,
-                ResponseWithBytes {
-                    response_type: ResponseType::GenerateKey2p,
-                    data: vec![serde_json::to_vec(&c.public).unwrap()],
-                },
-            )
+            let c = li17_key_gen4(request_data, context);
+            if c.is_ok() {
+                let c = c.unwrap();
+                let serde = serde_json::to_string(&c);
+                if serde.is_ok() {
+                    if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                        return (
+                            Context::Empty,
+                            ResponseWithBytes {
+                                response_type: ResponseType::GenerateKey2p,
+                                data: vec![serde_json::to_vec(&c.public).unwrap()],
+                            },
+                        )
+                    }
+                }
+            }
+            ABORT
         }
 
         (Context::Empty, RequestType::Sign2p) => {
             let data = fs::read_to_string(&config.context_path);
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             let context = serde_json::from_str::<Li17SignContext>(&data.unwrap());
             if context.is_err() {
                 eprintln!("Failed to parse setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             li17_sign1(context.unwrap(), request_data)
         }
@@ -339,13 +315,7 @@ pub fn process_request(
         (Context::Sign2pContext3(context), RequestType::Sign2p) => {
             let s = li17_sign4(request_data, context);
             if s.is_err() {
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             (
                 Context::Empty,
@@ -360,24 +330,12 @@ pub fn process_request(
             let data = fs::read_to_string(&config.context_path);
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             let context = serde_json::from_str::<Li17SignContext>(&data.unwrap());
             if context.is_err() {
                 eprintln!("Failed to parse setup file.");
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
             li17_refresh1(context.unwrap())
         }
@@ -389,16 +347,13 @@ pub fn process_request(
         (Context::Refresh2pContext3(context), RequestType::Refresh2p) => {
             let c = li17_refresh4(request_data, context);
             if c.is_err() {
-                return (
-                    Context::Empty,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                );
+                return ABORT
             }
-
-            fs::write(&config.context_path, serde_json::to_string(&c).unwrap())
+            let serde = serde_json::to_string(&c);
+            if serde.is_err() {
+                return ABORT
+            }
+            fs::write(&config.context_path, serde.unwrap())
                 .expect("Unable to save setup file.");
 
             (
@@ -411,12 +366,6 @@ pub fn process_request(
 
         }
 
-        _ => (
-            Context::Empty,
-            ResponseWithBytes {
-                response_type: ResponseType::Abort,
-                data: Vec::new(),
-            },
-        ),
+        _ => ABORT
     }
 }
