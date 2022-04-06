@@ -187,12 +187,12 @@ pub fn li17_key_gen3( msg: Vec<u8>, context: Li17KeyGenContext2 ) -> (Context, R
     }
 }
 
-pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, ResponseWithBytes) {
+pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> Result<Li17SignContext, &'static str> {
 
     if context.index == 0 {
         if context.p1_ec_key_pair.is_none() || context.p1_paillier_key_pair.is_none()
            || context.p1_public_share_p2.is_none() {
-               return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+               return Err("invalid context")
         }
         let party_one_private = party_one::Party1Private::set_private_key(&context.p1_ec_key_pair.clone().unwrap(),
                                                                     &context.p1_paillier_key_pair.unwrap());
@@ -206,25 +206,19 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, R
             p2_private: None,
             p2_paillier_public: None,
         };
-
-        let m = serde_json::to_vec(&public_key);
-        if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
-        }
-        (Context::Sign2pContext0(sign_context), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
-                                            data: vec!(m.unwrap())})
+        Ok(sign_context)
 
     } else {
         let msg = serde_json::from_slice::<Li17KeyGenMsg3>(&msg);
         if msg.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+            return Err("failed to parse a message")
         }
 
         let (party_one_second_message, correct_key_proof, pdl_statement, pdl_proof,
             composite_dlog_proof, paillier_ek, paillier_encrypted_share) = msg.unwrap();
 
         if context.p2_msg1_from_p1.is_none() || context.p2_ec_key_pair.is_none() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return Err("invalid context")
         }
 
         let p2_ec_key_pair = context.p2_ec_key_pair.clone().unwrap();
@@ -234,7 +228,7 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, R
                         );
 
         if r.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return Err("failed to verify commitments and DLog proof")
         }
 
         let party_two_paillier = party_two::PaillierPublic {
@@ -244,7 +238,7 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, R
 
         if party_two::PaillierPublic::verify_ni_proof_correct_key( correct_key_proof,
                                                                 &party_two_paillier.ek,).is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return Err("bad paillier key")
         }
 
         if party_two::PaillierPublic::pdl_verify(
@@ -254,7 +248,7 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, R
                         &party_two_paillier,
                         &party_one_second_message.comm_witness.public_share,
                     ).is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
+            return Err("PDL error")
         }
 
         let party_two_private = party_two::Party2Private::set_private_key(&p2_ec_key_pair);
@@ -270,11 +264,6 @@ pub fn li17_key_gen4( msg: Vec<u8>, context: Li17KeyGenContext3 ) -> (Context, R
             p2_paillier_public: Some(party_two_paillier)
         };
 
-        let m = serde_json::to_vec(&public_key);
-        if m.is_err() {
-            return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()})
-        }
-        (Context::Sign2pContext0(sign_context), ResponseWithBytes{ response_type: ResponseType::GenerateKey,
-                                            data: vec!(m.unwrap())})
+        Ok(sign_context)
     }
 }

@@ -15,6 +15,9 @@ use crate::li17_key_gen::{
 use crate::li17_sign::{
     Li17SignContext1, Li17SignContext2, Li17SignContext3,
 };
+use crate::li17_refresh::{
+    Li17RefreshContext1, Li17RefreshContext2, Li17RefreshContext3,
+};
 use chrono::{Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -96,6 +99,9 @@ pub enum Context {
     Sign2pContext1(Li17SignContext1),
     Sign2pContext2(Li17SignContext2),
     Sign2pContext3(Li17SignContext3),
+    Refresh2pContext1(Li17RefreshContext1),
+    Refresh2pContext2(Li17RefreshContext2),
+    Refresh2pContext3(Li17RefreshContext3),
 }
 
 /*
