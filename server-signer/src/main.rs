@@ -1,5 +1,8 @@
-mod key_gen;
-mod sign;
+mod gg18_key_gen;
+mod gg18_sign;
+mod li17_key_gen;
+mod li17_sign;
+mod li17_refresh;
 mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
@@ -38,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut request_buf = vec![0; BUFFER_SIZE];
                 let size = socket.read(&mut request_buf).unwrap();
                 let request = serde_json::from_slice::<Request>(&request_buf[..size]);
-                println!("Current context: {:?}", context);
+            //    println!("Current context: {:?}", context);
                 println!("Got request: {:?}", request);
                 (context, response) = match request {
                     Ok(req) => process_request(&context, &config, req),
@@ -47,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let response_hex = response_bytes_to_hex(response);
                 println!("Sending response: {:?}", &response_hex);
-                println!("Changing context to: {:?}", context);
+            //    println!("Changing context to: {:?}", context);
                 // Write back the response
                 let e = socket.write_all(&serde_json::to_vec(&response_hex).unwrap());
                 if e.is_err() {

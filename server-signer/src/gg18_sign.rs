@@ -15,8 +15,8 @@ use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
 use paillier::EncryptionKey;
 use multi_party_ecdsa::utilities::mta::*;
 use sha2::Sha256;
-use crate::key_gen::GG18SignContext;
-use crate::requests::{ResponseWithBytes, Context, ResponseType};
+use crate::gg18_key_gen::GG18SignContext;
+use crate::requests::{ResponseWithBytes, Context, ResponseType, ABORT};
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext1 {
@@ -180,7 +180,7 @@ pub fn gg18_sign1(context: &GG18SignContext, indices: Vec<u16>, message_hash: Ve
 
     let m = serde_json::to_vec(&(context1.com.clone(), m_a_k));
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext1(context1), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -192,7 +192,7 @@ pub fn gg18_sign2(messages: Vec<Vec<u8>>, context: &GG18SignContext1) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -237,7 +237,7 @@ pub fn gg18_sign2(messages: Vec<Vec<u8>>, context: &GG18SignContext1) -> (Contex
                 &[]
             );
             if result1.is_err() || result2.is_err() {
-                return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+                return ABORT
             }
             let (m_b_gamma, beta_gamma, _, _) = result1.unwrap();
             let (m_b_w, beta_wi, _, _) = result2.unwrap();
@@ -269,7 +269,7 @@ pub fn gg18_sign2(messages: Vec<Vec<u8>>, context: &GG18SignContext1) -> (Contex
            .collect();
 
     if m.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     (Context::SignContext2(context2), ResponseWithBytes{ response_type: ResponseType::Sign, data: m.unwrap()})
@@ -281,7 +281,7 @@ pub fn gg18_sign3(messages: Vec<Vec<u8>>, context: &GG18SignContext2) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -305,7 +305,7 @@ pub fn gg18_sign3(messages: Vec<Vec<u8>>, context: &GG18SignContext2) -> (Contex
             let result = m_b
                 .verify_proofs_get_alpha(&context.party_keys.dk, &context.sign_keys.k_i);
             if result.is_err() {
-                return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+                return ABORT
             }
             let alpha_ij_gamma = result.unwrap();
 
@@ -313,7 +313,7 @@ pub fn gg18_sign3(messages: Vec<Vec<u8>>, context: &GG18SignContext2) -> (Contex
             let result = m_b
                 .verify_proofs_get_alpha(&context.party_keys.dk, &context.sign_keys.k_i);
             if result.is_err() {
-                return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+                return ABORT
             }
             let alpha_ij_wi = result.unwrap();
 
@@ -350,7 +350,7 @@ pub fn gg18_sign3(messages: Vec<Vec<u8>>, context: &GG18SignContext2) -> (Contex
 
     let m = serde_json::to_vec(&delta_i);
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext3(context3), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -362,7 +362,7 @@ pub fn gg18_sign4(messages: Vec<Vec<u8>>, context: &GG18SignContext3) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -396,7 +396,7 @@ pub fn gg18_sign4(messages: Vec<Vec<u8>>, context: &GG18SignContext3) -> (Contex
 
     let m = serde_json::to_vec(&context4.decommit.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext4(context4), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -408,7 +408,7 @@ pub fn gg18_sign5(messages: Vec<Vec<u8>>, context: &GG18SignContext4) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -435,7 +435,7 @@ pub fn gg18_sign5(messages: Vec<Vec<u8>>, context: &GG18SignContext4) -> (Contex
     let result = SignKeys::phase4(&context.delta_inv, &b_proof_vec, decommit_vec, &bc1_vec);
 
     if result.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let r = result.unwrap();
@@ -463,7 +463,7 @@ pub fn gg18_sign5(messages: Vec<Vec<u8>>, context: &GG18SignContext4) -> (Contex
 
     let m = serde_json::to_vec(&context5.phase5_com.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext5(context5), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -476,7 +476,7 @@ pub fn gg18_sign6(messages: Vec<Vec<u8>>, context: &GG18SignContext5) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -507,7 +507,7 @@ pub fn gg18_sign6(messages: Vec<Vec<u8>>, context: &GG18SignContext5) -> (Contex
     let m = serde_json::to_vec(&(context6.phase_5a_decom.clone(), context6.helgamal_proof.clone(),
     context6.dlog_proof_rho.clone()));
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext6(context6), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -520,7 +520,7 @@ pub fn gg18_sign7(messages: Vec<Vec<u8>>, context: &GG18SignContext6) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -571,7 +571,7 @@ pub fn gg18_sign7(messages: Vec<Vec<u8>>, context: &GG18SignContext6) -> (Contex
         );
 
     if result.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let (phase5_com2, phase_5d_decom2) = result.unwrap();
@@ -587,7 +587,7 @@ pub fn gg18_sign7(messages: Vec<Vec<u8>>, context: &GG18SignContext6) -> (Contex
 
     let m = serde_json::to_vec(&context7.phase5_com2.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext7(context7), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -599,7 +599,7 @@ pub fn gg18_sign8(messages: Vec<Vec<u8>>, context: &GG18SignContext7) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -626,7 +626,7 @@ pub fn gg18_sign8(messages: Vec<Vec<u8>>, context: &GG18SignContext7) -> (Contex
 
     let m = serde_json::to_vec(&context8.phase_5d_decom2.clone());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext8(context8), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
@@ -639,7 +639,7 @@ pub fn gg18_sign9(messages: Vec<Vec<u8>>, context: &GG18SignContext8) -> (Contex
                                 .map(| x | serde_json::from_slice(&x).ok())
                                 .collect();
     if messages.is_none() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let messages = messages.unwrap();
@@ -671,7 +671,7 @@ pub fn gg18_sign9(messages: Vec<Vec<u8>>, context: &GG18SignContext8) -> (Contex
         );
 
     if s_i.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
 
     let context9 = GG18SignContext9 {
@@ -681,7 +681,7 @@ pub fn gg18_sign9(messages: Vec<Vec<u8>>, context: &GG18SignContext8) -> (Contex
 
     let m = serde_json::to_vec(&s_i.unwrap());
     if m.is_err() {
-        return (Context::Empty, ResponseWithBytes{ response_type: ResponseType::Abort, data: Vec::new()});
+        return ABORT
     }
     (Context::SignContext9(context9), ResponseWithBytes{ response_type: ResponseType::Sign,
                                         data: vec!(m.unwrap())})
