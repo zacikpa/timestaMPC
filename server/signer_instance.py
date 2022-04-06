@@ -10,18 +10,35 @@ class SignerInstance:
         self.port = port
         self.reader, self.writer = None, None
         self.index = index
+        self.connected = False
 
-    async def connect(self):
-        self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+    async def connect(self) -> bool:
+        try:
+            self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+            self.connected = True
+        except ConnectionRefusedError:
+            return False
+        return True
 
     async def send(self, payload):
-        self.writer.write(json.dumps(
+        try:
+            self.writer.write(json.dumps(
                 payload
             ).encode('utf-8'))
-        await self.writer.drain()
+            await self.writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
+            self.connected = False
 
     async def recv(self):
-        return (await self.reader.read(BUFFER_SIZE)).decode("utf8")
+        try:
+            data = (await self.reader.read(BUFFER_SIZE)).decode("utf8")
+        except (ConnectionResetError, BrokenPipeError):
+            self.connected = False
+            data = ""
+        return data
+
+    def is_connected(self):
+        return self.connected
 
     def __repr__(self) -> str:
         return f'Server @ {self.port} with index {self.index}'

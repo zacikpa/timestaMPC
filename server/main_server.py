@@ -20,14 +20,15 @@ class SignerManager:
         self.threshold: int = config.get("threshold")
         self.signers: List[Dict] = config.get("signers")
         self.signer_instances: List[SignerInstance] = []
-        self.awake_signers = []
         self.active_signers = []
 
-    async def spawn_instances(self):
+    async def spawn_instances(self) -> bool:
         for signer in self.signers:
             self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port")))
         for instance in self.signer_instances:
-            await instance.connect()
+            if not (await instance.connect()):
+                return False
+        return True
 
     @staticmethod
     async def _distribute_data(messages, request_type, instances: List[SignerInstance]):
@@ -79,7 +80,7 @@ class SignerManager:
 
     async def key_generation(self) -> List:
         await self._init_keygen()
-        print(self.signer_instances, self.active_signers, self.awake_signers)
+        print(self.signer_instances, self.active_signers)
         for phase in range(5):
             recv_messages = [None for _ in self.signers]
             if phase == 2:
@@ -96,39 +97,28 @@ class SignerManager:
 
     async def _get_signer(self, index):
         signer = self.signer_instances[index]
-        try:
-            response = await signer.recv()
-        except BrokenPipeError:
-            response = ""
+        response = await signer.recv()
         print(f'for index {index} response {response}')
         return index, response
 
     async def get_active_signers(self) -> None:
         current_missing = self.threshold
         for signer in self.signer_instances:
-            try:
-                await signer.send(build_payload("InitSign", []))
-            except ConnectionResetError:
-                pass
-            except BrokenPipeError:
-                pass
+            if not signer.is_connected():
+                print("Trying to reconnect to {}".format(signer.index))
+                await signer.connect()
+            await signer.send(build_payload("InitSign", []))
 
         active_signers = []
-        awake_signers = []
 
         for f in asyncio.as_completed([self._get_signer(i) for i in range(self.num_parties)]):
             index, response = await f
-            print("response: ", response, len(response), type(response), index)
             if current_missing > 0 and len(response) != 0:
                 current_missing -= 1
                 active_signers.append(index)
                 print(active_signers, current_missing)
-            if len(response) != 0:
-                awake_signers.append(index)
 
-        print("awake:", awake_signers)
         self.active_signers = active_signers
-        self.awake_signers = awake_signers
 
     async def mp_sign_init(self, hash, timestamp):
         print("Active signers", self.active_signers)
@@ -140,16 +130,13 @@ class SignerManager:
             await signer.send(payload)
 
         for index, signer in enumerate(self.signer_instances):
-            if not (index in self.awake_signers and index not in self.active_signers):
+            if index in self.active_signers:
                 continue
             payload = build_payload("Abort", [])
             dump = json.dumps(payload).encode('utf-8')
             print(dump)
-            try:
-                await signer.send(payload)
-                await signer.recv()
-            except ConnectionResetError:
-                print(f'Server {index} is already dead.')
+            await signer.send(payload)
+            await signer.recv()
 
     async def mp_sign(self):
         active_signer_instances = [self.signer_instances[i] for i in self.active_signers]
@@ -213,7 +200,8 @@ def to_byte_array(data):
 
 
 async def signer_manager(manager: SignerManager):
-    await manager.spawn_instances()
+    if not (await manager.spawn_instances()):
+        exit("Error: could not connect to all signers.")
     contexts = await manager.key_generation()
     print(contexts)
     print("signers inited")
@@ -246,7 +234,7 @@ def main():
         config = json.load(config_file)
     manager = SignerManager(config)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     loop.run_until_complete(asyncio.start_server(handle_client, config.get("host"), config.get("port")))
     loop.run_until_complete(signer_manager(manager))
 
