@@ -33,8 +33,9 @@ class SignerInstance:
         try:
             data = (await self.reader.read(BUFFER_SIZE)).decode("utf8")
         except (ConnectionResetError, BrokenPipeError):
-            self.connected = False
             data = ""
+        if len(data) == 0:
+            self.connected = False
         return data
 
     def is_connected(self):

@@ -218,6 +218,9 @@ async def signer_manager(manager: SignerManager):
                 "reason": "unable to connect to enough signing servers"
             }
             await RESPONSE_QUEUE.put(response)
+            for signer in manager.signer_instances:
+                if signer.index in manager.active_signers:
+                    await signer.send(build_payload("Abort", []))
             continue
         try:
             await manager.mp_sign_init(hash, timestamp)
