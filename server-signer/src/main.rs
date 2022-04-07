@@ -7,54 +7,103 @@ mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
-use crate::requests::{process_request, response_bytes_to_hex, Context, Request, Config, ResponseType, ResponseWithBytes};
+use crate::requests::{process_request, response_bytes_to_b64, Context, Request, Config, ResponseType, ResponseWithBytes};
 use std::env;
 
-const BUFFER_SIZE: usize = 100000;
+const BUFFER_SIZE_PER_PARTY: usize = 10_000;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     // Check and parse command line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        panic!("Expecting a single command line argument!");
+        eprintln!("Error: Expecting a single command line argument");
+        return;
     }
     let config_filename = &args[1];
 
     // Read the configuration file
-    let config_file = File::open(&config_filename).unwrap();
-    let config_reader = BufReader::new(config_file);
-    let config: Config = serde_json::from_reader(config_reader).unwrap();
-    println!("{:?}", config);
+    let config_file = match File::open(&config_filename) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Error: {}", e.to_string());
+            return
+        }
+    };
 
+    // Parse the configuration file
+    let config_reader = BufReader::new(config_file);
+    let config: Config = match serde_json::from_reader(config_reader) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Error: {}", e.to_string());
+            return
+        }
+    };
+
+    println!("{:?}", config);
     // Create an empty signer context
     let mut context = Context::Empty;
     let mut response: ResponseWithBytes;
 
     // Bind to the socket
-    let listener = TcpListener::bind((&config.host[..], config.port)).unwrap();
+    let listener = match TcpListener::bind((&config.host[..], config.port)) {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Error: {}", e.to_string());
+            return
+        }
+    };
 
     // Start listening to connections
     loop {
-        let (mut socket, _) = listener.accept().unwrap();
+        let (mut socket, _) = match listener.accept() {
+            Ok(socket) => socket,
+            Err(e) => {
+                eprintln!("Error: {}", e.to_string());
+                continue;
+            }
+        };
             loop {
                 // Read an incoming request
-                let mut request_buf = vec![0; BUFFER_SIZE];
-                let size = socket.read(&mut request_buf).unwrap();
-                let request = serde_json::from_slice::<Request>(&request_buf[..size]);
-            //    println!("Current context: {:?}", context);
+                let mut request_buffer = vec![0; BUFFER_SIZE_PER_PARTY * config.num_parties as usize];
+                let size = match socket.read(&mut request_buffer) {
+                    Ok(size) => size,
+                    Err(e) => {
+                        eprintln!("Error: {}", e.to_string());
+                        break
+                    }
+                };
+
+                // Process the request and create a response
+                let request = serde_json::from_slice::<Request>(&request_buffer[..size]);
                 println!("Got request: {:?}", request);
                 (context, response) = match request {
                     Ok(req) => process_request(&context, &config, req),
-                    Err(_e) => (Context::Empty,
-                                ResponseWithBytes{response_type: ResponseType::Abort, data: Vec::new()})
+                    Err(e) => {
+                        eprintln!("Error: {}", e.to_string());
+                        (
+                            Context::Empty,
+                            ResponseWithBytes {
+                                response_type: ResponseType::Abort,
+                                data: Vec::new()
+                            }
+                        )
+                    }
                 };
-                let response_hex = response_bytes_to_hex(response);
-                println!("Sending response: {:?}", &response_hex);
-            //    println!("Changing context to: {:?}", context);
+                let response_b64 = response_bytes_to_b64(response);
+                println!("Sending response: {:?}", &response_b64);
+
                 // Write back the response
-                let e = socket.write_all(&serde_json::to_vec(&response_hex).unwrap());
-                if e.is_err() {
-                    eprintln!("Failed to write to socket; err = {:?}", e);
+                let json_response = match serde_json::to_vec(&response_b64) {
+                    Ok(response) => response,
+                    Err(e) => {
+                        eprintln!("Error: {}", e.to_string());
+                        continue;
+                    }
+                };
+                let write_result = socket.write_all(&json_response);
+                if write_result.is_err() {
+                    eprintln!("Error: {}", write_result.unwrap_err().to_string());
                     break;
                 }
         }
