@@ -3,7 +3,10 @@
 import asyncio
 import json
 import sys
+from base64 import b64encode
 from cryptography.hazmat.primitives import hashes
+
+BUFFER_SIZE = 2000
 
 
 class TMPCClient:
@@ -20,7 +23,7 @@ class TMPCClient:
         self.writer.write(bytes(data, encoding="utf-8"))
 
     async def receive_data(self):
-        return (await self.reader.read(2000)).decode()
+        return (await self.reader.read(BUFFER_SIZE)).decode()
 
     def close(self):
         self.writer.close()
@@ -32,7 +35,7 @@ def hash_document(filename: str) -> str:
         for line in f:
             digest.update(line.encode("utf-8"))
 
-    return digest.finalize().hex()
+    return b64encode(digest.finalize()).decode()
 
 
 async def sign_document(client: TMPCClient, filename: str):

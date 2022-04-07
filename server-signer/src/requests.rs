@@ -25,7 +25,7 @@ use chrono::{Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
-use hex;
+use base64;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -128,12 +128,12 @@ fn check_time(config: &Config, time_data: Vec<u8>) -> bool {
     return time < Utc::now() + time_error && time > Utc::now() - time_error;
 }
 
-pub fn response_bytes_to_hex(response_bytes: ResponseWithBytes) -> Response {
+pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
     return Response {
         response_type: response_bytes.response_type,
         data: response_bytes.data
             .iter()
-            .map(|x| hex::encode(x))
+            .map(|x| base64::encode(x))
             .collect()
     }
 }
@@ -145,7 +145,7 @@ pub fn process_request(
 ) -> (Context, ResponseWithBytes) {
     let request_data : Option<Vec<Vec<u8>>>= request.data
         .iter()
-        .map(|x| hex::decode(x).ok())
+        .map(|x| base64::decode(x).ok())
         .collect();
 
     if request_data.is_none() {

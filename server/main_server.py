@@ -3,13 +3,11 @@
 import asyncio
 import json
 import sys
+from base64 import b64encode
 from datetime import datetime
-
 from typing import Dict, List
-
 from signer_instance import SignerInstance
 
-BUFFER_SIZE = 100000
 REQUEST_QUEUE = asyncio.Queue()
 RESPONSE_QUEUE = asyncio.Queue()
 
@@ -124,7 +122,8 @@ class SignerManager:
         print("Active signers", self.active_signers)
         for index in self.active_signers:
             signer = self.signer_instances[index]
-            payload = build_payload("Sign", [bytes(self.active_signers).hex(), hash, timestamp.hex()])
+            payload = build_payload("Sign", [b64encode(bytes(self.active_signers)).decode(), hash, b64encode(timestamp).decode()])
+            print(payload)
             dump = json.dumps(payload).encode('utf-8')
             print(dump)
             await signer.send(payload)
@@ -201,8 +200,12 @@ def to_byte_array(data):
 
 async def signer_manager(manager: SignerManager):
     if not (await manager.spawn_instances()):
-        exit("Error: could not connect to all signers.")
-    contexts = await manager.key_generation()
+        exit("Error: could not connect to all signers")
+    try:
+        contexts = await manager.key_generation()
+    except RuntimeError as err:
+        print(str(err))
+        exit("Error: communication with signers failed during key generation")
     print(contexts)
     print("signers inited")
     while True:
@@ -216,8 +219,17 @@ async def signer_manager(manager: SignerManager):
             }
             await RESPONSE_QUEUE.put(response)
             continue
-        await manager.mp_sign_init(hash, timestamp)
-        signatures = await manager.mp_sign()
+        try:
+            await manager.mp_sign_init(hash, timestamp)
+            signatures = await manager.mp_sign()
+        except RuntimeError as err:
+            print(str(err))
+            response = {
+                "status": "failure",
+                "reason": "communication with signers failed"
+            }
+            await RESPONSE_QUEUE.put(response)
+            continue
         print("Signing complete, signatures:", signatures)
         response = {
             "status": "success",
@@ -233,6 +245,9 @@ def main():
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
     manager = SignerManager(config)
+
+    global BUFFER_SIZE
+    BUFFER_SIZE = 10000 * config.get("num_parties")
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(asyncio.start_server(handle_client, config.get("host"), config.get("port")))
