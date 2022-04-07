@@ -49,7 +49,7 @@ class SignerManager:
                     serialization.load_pem_public_key(key_file.read())
                     )
                 
-    def distribute_symmetric_key(self):
+    async def distribute_symmetric_key(self):
         print(f"Symmetric key:{b64encode(self.symmetric_key).decode()}")
         for index, signer in enumerate(self.signer_instances):
             public_key = self.signer_public_keys[index]
@@ -58,7 +58,14 @@ class SignerManager:
                 padding.PKCS1v15()
             )
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
-            signer.send(payload)
+            await signer.send(payload, skip_encrypt=True)
+            
+        recv_messages = [None for _ in self.signers]
+
+        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances,  True)
+        send_messages = SignerManager._build_distributed_data_p3(recv_messages)
+        await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
+
 
     @staticmethod
     async def _distribute_data(messages, request_type, instances: List[SignerInstance]):
@@ -238,14 +245,17 @@ def to_byte_array(data):
 
 async def signer_manager(manager: SignerManager, pubkey_directory: str):
     manager.load_keyfiles(pubkey_directory)
-    manager.distribute_symmetric_key()
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
+        
+    await manager.distribute_symmetric_key()
+    
     try:
         contexts = await manager.key_generation()
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
+
     print(contexts)
     print("signers inited")
     while True:
