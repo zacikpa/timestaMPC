@@ -3,3 +3,4 @@ venv
 .python-version
 server-signer/*.cfg
 server/*.cfg
+keys/
