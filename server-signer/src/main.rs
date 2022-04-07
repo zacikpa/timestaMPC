@@ -9,6 +9,7 @@ use std::io::{Write, Read, BufReader};
 use std::fs::File;
 use crate::requests::{process_request, response_bytes_to_b64, Context, Request, Config, ResponseType, ResponseWithBytes};
 use std::env;
+use std::str;
 
 const BUFFER_SIZE_PER_PARTY: usize = 10_000;
 
@@ -63,16 +64,28 @@ fn main() {
                 continue;
             }
         };
-            loop {
+            'outer: loop {
                 // Read an incoming request
+                let mut size = 0;
                 let mut request_buffer = vec![0; BUFFER_SIZE_PER_PARTY * config.num_parties as usize];
-                let size = match socket.read(&mut request_buffer) {
-                    Ok(size) => size,
-                    Err(e) => {
-                        eprintln!("Error: {}", e.to_string());
-                        break
+
+                while serde_json::from_slice::<Request>(&request_buffer[..size]).is_err() {
+                    let new_size = match socket.read(&mut request_buffer[size..]) {
+                        Ok(size) => size,
+                        Err(e) => {
+                            eprintln!("Error: {}", e.to_string());
+                            break 'outer
+                        }
+                    };
+                    if new_size == 0 {
+                        eprintln!("Error: Reached EOF");
+                        break 'outer
                     }
-                };
+                    size += new_size;
+                }
+
+                println!("Read size to socket {:?}", size);
+                println!("Data: {:?}", str::from_utf8(&request_buffer[..size]).unwrap());
 
                 // Process the request and create a response
                 let request = serde_json::from_slice::<Request>(&request_buffer[..size]);
