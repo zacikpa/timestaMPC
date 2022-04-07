@@ -185,8 +185,15 @@ async def handle_command(data) -> str:
 
 async def handle_client(reader, writer):
     request_data = (await reader.read(CLIENT_BUFFER_SIZE)).decode("utf-8")
-    request = json.loads(request_data)
-    response_data = await handle_command(request)
+    try:
+        request = json.loads(request_data)
+        response_data = await handle_command(request)
+    except json.JSONDecodeError:
+        response = {
+            "status": "failure",
+            "reason": "invalid request"
+        }
+        response_data = json.dumps(response)
 
     # TODO I think the channel back (with the real timestamp) would have to be encrypted,
     # because someone can mangle with the timestamp
@@ -205,7 +212,7 @@ async def signer_manager(manager: SignerManager):
         exit("Error: could not connect to all signers")
     try:
         contexts = await manager.key_generation()
-    except RuntimeError as err:
+    except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
     print(contexts)
@@ -227,7 +234,7 @@ async def signer_manager(manager: SignerManager):
         try:
             await manager.mp_sign_init(hash, timestamp)
             signatures = await manager.mp_sign()
-        except RuntimeError as err:
+        except (RuntimeError, json.JSONDecodeError) as err:
             print(str(err))
             response = {
                 "status": "failure",
