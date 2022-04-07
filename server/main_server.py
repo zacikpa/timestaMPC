@@ -5,13 +5,14 @@ import json
 import sys
 import glob
 import secrets
-from base64 import b64encode
+import ca
+from base64 import b64encode, b64decode
 from datetime import datetime
 from typing import Dict, List
 from signer_instance import SignerInstance
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, ec
 from cryptography.hazmat.primitives.ciphers.algorithms import AES
 
 REQUEST_QUEUE = asyncio.Queue()
@@ -27,7 +28,7 @@ class SignerManager:
         refresh: bool = config.get("refresh")
         if refresh and (self.num_parties != 2):
             raise RuntimeError("For refresh to work there must be exactly 2 parties (2-of-2).")
-        
+
         self.do_2p = (self.num_parties == 2 and self.refresh)
         self.signers: List[Dict] = config.get("signers")
         self.signer_instances: List[SignerInstance] = []
@@ -44,8 +45,8 @@ class SignerManager:
             if not (await instance.connect()):
                 return False
         return True
-    
-    
+
+
     def load_keyfiles(self, dirname: str):
         keyfiles = glob.glob(f'{dirname}/*.pub')
         for filename in keyfiles:
@@ -53,7 +54,7 @@ class SignerManager:
                 self.signer_public_keys.append(
                     serialization.load_pem_public_key(key_file.read())
                     )
-                
+
     async def distribute_symmetric_key(self):
         print(f"Symmetric key:{b64encode(self.symmetric_key).decode()}")
         for index, signer in enumerate(self.signer_instances):
@@ -64,7 +65,7 @@ class SignerManager:
             )
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
             await signer.send(payload, skip_encrypt=True)
-            
+
         recv_messages = [None for _ in self.signers]
 
         await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances,  True)
@@ -120,7 +121,7 @@ class SignerManager:
         return cleaned
 
     async def key_generation(self) -> List:
-                
+
         phase_enum = "GenerateKey2p" if self.do_2p else "GenerateKey"
 
         await self._init_keygen(phase_enum)
@@ -138,7 +139,7 @@ class SignerManager:
 
         key_gen_sign_contexts = [None for _ in self.signers]
         await self._recv_to_array(key_gen_sign_contexts, phase_enum, self.signer_instances)
-        
+
         return key_gen_sign_contexts
 
     async def _get_signer(self, index):
@@ -165,8 +166,8 @@ class SignerManager:
                 print(active_signers, current_missing)
 
         self.active_signers = active_signers
-        
-        
+
+
     async def refresh_2p(self):
         phase_enum = "Refresh2p"
 
@@ -185,17 +186,17 @@ class SignerManager:
         await self._recv_to_array(key_gen_sign_contexts, phase_enum, self.signer_instances)
 
         return key_gen_sign_contexts
-    
+
     async def mp_sign_init(self, hash, timestamp):
         print("Active signers", self.active_signers)
         for index in self.active_signers:
             signer = self.signer_instances[index]
-            
+
             if self.do_2p:
                 payload = build_payload("Sign2p", [hash, b64encode(timestamp).decode()])
             else:
                 payload = build_payload("Sign", [b64encode(bytes(self.active_signers)).decode(), hash, b64encode(timestamp).decode()])
-                
+
             print(payload)
             dump = json.dumps(payload).encode('utf-8')
             print(dump)
@@ -204,7 +205,7 @@ class SignerManager:
         if self.do_2p:
             return
         # all signers have to be online if 2p (both of them)
-        
+
         for index, signer in enumerate(self.signer_instances):
             if index in self.active_signers:
                 continue
@@ -286,15 +287,16 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
     manager.load_keyfiles(pubkey_directory)
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
-        
+
     await manager.distribute_symmetric_key()
-    
+
     try:
         contexts = await manager.key_generation()
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
-
+    public_key = ec.from_encoded_point(ec.SECP256K1(), b64decode(contexts[0].encode()))
+    manager.certificate = ca.issue_cert("TimestaMPC", public_key)
     print(contexts)
     print("signers inited")
     while True:
@@ -325,10 +327,11 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
         print("Signing complete, signatures:", signatures)
         response = {
             "status": "success",
-            "signature": signatures[0]
+            "signature": signatures[0],
+            "certificate": manager.certificate.public_bytes(serialization.encoding.PEM).decode()
         }
         await RESPONSE_QUEUE.put(response)
-        
+
         if manager.do_2p:
             await manager.refresh_2p()
 
@@ -337,7 +340,7 @@ def main():
     if len(sys.argv) != 3:
         print("Usage:", sys.argv[0], "CONFIG_FILE PUBLIC_KEY_DIRECTORY")
         return
-    
+
     config_filename = sys.argv[1]
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)

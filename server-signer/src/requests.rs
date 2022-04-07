@@ -202,7 +202,7 @@ pub fn process_request(
                             Context::Empty,
                             ResponseWithBytes {
                                 response_type: ResponseType::GenerateKey,
-                                data: vec![serde_json::to_vec(&c.pk).unwrap()],
+                                data: vec![c.pk.to_bytes(false).as_ref().to_vec()],
                             },
                         )
                     }
@@ -286,7 +286,7 @@ pub fn process_request(
                             Context::Empty,
                             ResponseWithBytes {
                                 response_type: ResponseType::GenerateKey2p,
-                                data: vec![serde_json::to_vec(&c.public).unwrap()],
+                                data: vec![c.public.to_bytes(false).as_ref().to_vec()],
                             },
                         )
                     }
