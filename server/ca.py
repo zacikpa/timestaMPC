@@ -3,7 +3,7 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 from datetime import datetime, timedelta
 
-CA_PRIVATE_KEY = """
+CA_PRIVATE_KEY = b"""
 -----BEGIN PRIVATE KEY-----
 MIIJQgIBADANBgkqhkiG9w0BAQEFAASCCSwwggkoAgEAAoICAQCvY4biKb9XgDf9
 m1DVnZqm2PGGp1X3gSqp503xKwimdnWRxUakgAvKQrI7IhsLl/xQacKLBx6i5ODA
@@ -58,7 +58,7 @@ rM3samy9M0K/LIpFqrwpW4mJxTcZxkYgsgrfShzU8DGj3oifaW3DCy6LEV25FIzj
 -----END PRIVATE KEY-----
 """
 
-CA_CERTIFICATE = """
+CA_CERTIFICATE = b"""
 -----BEGIN CERTIFICATE-----
 MIIEsjCCApqgAwIBAgIUbWCkd8cQetL3zu4gf3YzoHHHmC0wDQYJKoZIhvcNAQEL
 BQAwEzERMA8GA1UEAwwIUFYyMDQgQ0EwHhcNMjIwNDA3MTkxMzAyWhcNMjMwNDA3
@@ -91,7 +91,7 @@ a/AEwkAi
 
 
 def issue_cert(name, public_key):
-    ca_private_key = serialization.load_pem_public_key(CA_PRIVATE_KEY)
+    ca_private_key = serialization.load_pem_private_key(CA_PRIVATE_KEY, password=None)
     ca_cert = x509.load_pem_x509_certificate(CA_CERTIFICATE)
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
     cert = x509.CertificateBuilder(

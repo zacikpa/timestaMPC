@@ -295,7 +295,7 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
-    public_key = ec.from_encoded_point(ec.SECP256K1(), b64decode(contexts[0].encode()))
+    public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256K1(), b64decode(contexts[0].encode()))
     manager.certificate = ca.issue_cert("TimestaMPC", public_key)
     print(contexts)
     print("signers inited")
@@ -328,7 +328,7 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
         response = {
             "status": "success",
             "signature": signatures[0],
-            "certificate": manager.certificate.public_bytes(serialization.encoding.PEM).decode()
+            "certificate": manager.certificate.public_bytes(serialization.Encoding.PEM).decode()
         }
         await RESPONSE_QUEUE.put(response)
 
