@@ -24,6 +24,11 @@ class SignerManager:
     def __init__(self, config) -> None:
         self.num_parties: int = config.get("num_parties")
         self.threshold: int = config.get("threshold")
+        refresh: bool = config.get("refresh")
+        if refresh and (self.num_parties != 2):
+            raise RuntimeError("For refresh to work there must be exactly 2 parties (2-of-2).")
+        
+        self.do_2p = (self.num_parties == 2 and self.refresh)
         self.signers: List[Dict] = config.get("signers")
         self.signer_instances: List[SignerInstance] = []
         self.active_signers = []
@@ -54,7 +59,7 @@ class SignerManager:
         for index, signer in enumerate(self.signer_instances):
             public_key = self.signer_public_keys[index]
             encrypted_key = public_key.encrypt(
-                self.symmetric_key + self.iv,
+                self.iv + self.symmetric_key,
                 padding.PKCS1v15()
             )
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
@@ -72,9 +77,9 @@ class SignerManager:
         for index, signer in enumerate(instances):
             await signer.send(build_payload(request_type, messages[index]))
 
-    async def _init_keygen(self):
+    async def _init_keygen(self, message):
         for signer in self.signer_instances:
-            await signer.send(build_payload("GenerateKey", []))
+            await signer.send(build_payload(message, []))
 
     async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False) -> None:
         for index, signer in enumerate(instances):
@@ -115,20 +120,25 @@ class SignerManager:
         return cleaned
 
     async def key_generation(self) -> List:
-        await self._init_keygen()
+                
+        phase_enum = "GenerateKey2p" if self.do_2p else "GenerateKey"
+
+        await self._init_keygen(phase_enum)
         print(self.signer_instances, self.active_signers)
-        for phase in range(5):
+
+        for phase in range(5 if not self.do_2p else 2):
             recv_messages = [None for _ in self.signers]
-            if phase == 2:
-                await self._recv_to_array(recv_messages, "GenerateKey", self.signer_instances,  True)
+            if phase == 2 and not self.do_2p:
+                await self._recv_to_array(recv_messages, phase_enum, self.signer_instances,  True)
                 send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             else:
-                await self._recv_to_array(recv_messages, "GenerateKey", self.signer_instances)
+                await self._recv_to_array(recv_messages, phase_enum, self.signer_instances)
                 send_messages = self._build_distributed_data(recv_messages, self.signer_instances)
-            await SignerManager._distribute_data(send_messages, "GenerateKey", self.signer_instances)
+            await SignerManager._distribute_data(send_messages, phase_enum, self.signer_instances)
 
         key_gen_sign_contexts = [None for _ in self.signers]
-        await self._recv_to_array(key_gen_sign_contexts, "GenerateKey", self.signer_instances)
+        await self._recv_to_array(key_gen_sign_contexts, phase_enum, self.signer_instances)
+        
         return key_gen_sign_contexts
 
     async def _get_signer(self, index):
@@ -155,17 +165,46 @@ class SignerManager:
                 print(active_signers, current_missing)
 
         self.active_signers = active_signers
+        
+        
+    async def refresh_2p(self):
+        phase_enum = "Refresh2p"
 
+        await self._init_keygen(phase_enum)
+        print(self.signer_instances, self.active_signers)
+
+        for _ in range(3):
+            recv_messages = [None for _ in self.signers]
+
+            await self._recv_to_array(recv_messages, phase_enum, self.signer_instances)
+            send_messages = self._build_distributed_data(recv_messages, self.signer_instances)
+            await SignerManager._distribute_data(send_messages, phase_enum, self.signer_instances)
+
+        # now they _probably_ wont send new key TODO
+        key_gen_sign_contexts = [None for _ in self.signers]
+        await self._recv_to_array(key_gen_sign_contexts, phase_enum, self.signer_instances)
+
+        return key_gen_sign_contexts
+    
     async def mp_sign_init(self, hash, timestamp):
         print("Active signers", self.active_signers)
         for index in self.active_signers:
             signer = self.signer_instances[index]
-            payload = build_payload("Sign", [b64encode(bytes(self.active_signers)).decode(), hash, b64encode(timestamp).decode()])
+            
+            if self.do_2p:
+                payload = build_payload("Sign2p", [hash, b64encode(timestamp).decode()])
+            else:
+                payload = build_payload("Sign", [b64encode(bytes(self.active_signers)).decode(), hash, b64encode(timestamp).decode()])
+                
             print(payload)
             dump = json.dumps(payload).encode('utf-8')
             print(dump)
             await signer.send(payload)
 
+        if self.do_2p:
+            return
+        # all signers have to be online if 2p (both of them)
+        
         for index, signer in enumerate(self.signer_instances):
             if index in self.active_signers:
                 continue
@@ -178,9 +217,9 @@ class SignerManager:
     async def mp_sign(self):
         active_signer_instances = [self.signer_instances[i] for i in self.active_signers]
 
-        for phase in range(9):
+        for phase in range(9 if not self.do_2p else 2):
             recv_messages = [None for _ in range(self.threshold)]
-            if phase == 1:
+            if phase == 1 and not self.do_2p:
                 await self._recv_to_array(recv_messages, "Sign", active_signer_instances,  True)
                 send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             else:
@@ -289,6 +328,9 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
             "signature": signatures[0]
         }
         await RESPONSE_QUEUE.put(response)
+        
+        if manager.do_2p:
+            await manager.refresh_2p()
 
 
 def main():
