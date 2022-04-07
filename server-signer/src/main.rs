@@ -7,7 +7,8 @@ mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
-use crate::requests::{process_request, response_bytes_to_b64, Context, Request, Config, ResponseType, ResponseWithBytes, Response};
+use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, Context, Request,
+                      Config, ResponseType, ResponseWithBytes, Response};
 use std::env;
 
 const BUFFER_SIZE_PER_PARTY: usize = 10_000;
@@ -114,7 +115,7 @@ fn main() {
                         continue;
                     }
                 };
-                let write_result = socket.write_all(&json_response);
+                let write_result = socket.write_all(&encrypt_response(json_response, &config));
                 if write_result.is_err() {
                     eprintln!("Error: {}", write_result.unwrap_err().to_string());
                     break;

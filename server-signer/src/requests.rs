@@ -26,11 +26,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use base64;
+use openssl::rsa::{Rsa, Padding};
+use openssl::rand::rand_bytes;
+use openssl::symm::{encrypt, Cipher};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub index: u16,
     pub context_path: String,
+    pub public_rsa: String,
+    pub private_rsa: String,
+    pub symm_path: String,
     pub host: String,
     pub port: u16,
     pub num_parties: u16,
@@ -40,6 +46,7 @@ pub struct Config {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 enum RequestType {
+    SymmetricKeySend,
     GenerateKey,
     InitSign,
     Sign,
@@ -57,6 +64,7 @@ pub struct Request {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ResponseType {
+    SymmetricKeySend,
     GenerateKey,
     InitSign,
     Sign,
@@ -139,6 +147,21 @@ pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
     }
 }
 
+pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
+    // load key
+    let symm : Vec<u8> = fs::read(&format!("{}{}", config.symm_path, "_manager")).unwrap();
+    //encrypt
+    let cipher = Cipher::aes_256_cbc();
+    let mut iv = [0, 32];
+    rand_bytes(&mut iv).unwrap();
+    let mut encrypted_response = encrypt(cipher, &symm, Some(&iv), &response).unwrap();
+
+    let mut result_vec = iv.to_vec();
+    result_vec.append(&mut encrypted_response);
+    result_vec
+
+}
+
 pub fn process_request(
     context: &Context,
     config: &Config,
@@ -155,6 +178,51 @@ pub fn process_request(
     }
     let request_data = request_data.unwrap();
     match (context, request.request_type) {
+        (Context::Empty, RequestType::SymmetricKeySend) => {
+            // load private RSA key
+            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
+            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
+            let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
+            // decrypt symmetric key shared with manager server
+            let r = private_rsa.private_decrypt(&request_data[0][16..], &mut symm_key, Padding::PKCS1);
+
+            if r.is_err() || fs::write(format!("{}{}", config.symm_path, "_manager"), symm_key).is_err() {
+                return ABORT
+            }
+            // generate symmetric keys shared with other signers
+            let mut signers_symm_keys: Vec<Vec<u8>> = Vec::new();
+            for i in 0..config.num_parties {
+                // generate keys for parties with higher index
+                if i > config.index {
+                    let mut symm_key = [0; 32];
+                    // generate random key
+                    rand_bytes(&mut symm_key).unwrap();
+                    // save it
+                    if fs::write(format!("{}{}", config.symm_path, i), symm_key).is_err(){
+                        return ABORT
+                    }
+                    // load RSA public key for corresponding party
+                    let pub_rsa : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
+                    let public_rsa = Rsa::public_key_from_pem(pub_rsa.as_bytes()).unwrap();
+                    // encrypt the symm key
+                    let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
+                    let _ = public_rsa.public_encrypt(&symm_key, &mut encrypted, Padding::PKCS1).unwrap();
+                    // append it
+                    signers_symm_keys.push(encrypted.to_vec());
+                }
+                // parties with lower index will send key to you
+                if i < config.index {
+                    signers_symm_keys.push(Vec::new());
+                }
+            }
+            (
+                Context::Empty,
+                ResponseWithBytes {
+                    response_type: ResponseType::SymmetricKeySend,
+                    data: signers_symm_keys,
+                },
+            )
+        }
         (Context::Empty, RequestType::GenerateKey) => {
             gg18_key_gen_1(config.num_parties, config.threshold, config.index)
         }
@@ -202,7 +270,7 @@ pub fn process_request(
                             Context::Empty,
                             ResponseWithBytes {
                                 response_type: ResponseType::GenerateKey,
-                                data: vec![serde_json::to_vec(&c.pk).unwrap()],
+                                data: vec![c.pk.to_bytes(false).as_ref().to_vec()],
                             },
                         )
                     }
@@ -286,7 +354,7 @@ pub fn process_request(
                             Context::Empty,
                             ResponseWithBytes {
                                 response_type: ResponseType::GenerateKey2p,
-                                data: vec![serde_json::to_vec(&c.public).unwrap()],
+                                data: vec![c.public.to_bytes(false).as_ref().to_vec()],
                             },
                         )
                     }
@@ -306,7 +374,14 @@ pub fn process_request(
                 eprintln!("Failed to parse setup file.");
                 return ABORT
             }
-            li17_sign1(context.unwrap(), request_data)
+            if request.data.len() < 2 || !check_time(config, request_data[1].clone()) {
+                return ABORT
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(request_data[0].clone());
+            hasher.update(request_data[1].clone());
+            let hash = hasher.finalize();
+            li17_sign1(context.unwrap(), hash.to_vec())
         }
 
         (Context::Sign2pContext1(context), RequestType::Sign2p) => li17_sign2(request_data, context),
