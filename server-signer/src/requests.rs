@@ -104,6 +104,7 @@ pub enum Context {
     Refresh2pContext1(Li17RefreshContext1),
     Refresh2pContext2(Li17RefreshContext2),
     Refresh2pContext3(Li17RefreshContext3),
+    Refresh2pContext4(Li17SignContext),
 }
 
 pub const ABORT : (Context, ResponseWithBytes) = (
@@ -349,21 +350,29 @@ pub fn process_request(
             if c.is_err() {
                 return ABORT
             }
-            let serde = serde_json::to_string(&c);
-            if serde.is_err() {
-                return ABORT
-            }
-            fs::write(&config.context_path, serde.unwrap())
-                .expect("Unable to save setup file.");
-
             (
-                Context::Empty,
+                Context::Refresh2pContext4(c.unwrap()),
                 ResponseWithBytes {
                     response_type: ResponseType::GenerateKey2p,
                     data: Vec::new(),
                 },
             )
+        }
+        (Context::Refresh2pContext4(context), RequestType::Refresh2p) => {
 
+            let serde = serde_json::to_string(context);
+            if serde.is_ok() {
+                if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                    return (
+                        Context::Empty,
+                        ResponseWithBytes {
+                            response_type: ResponseType::Refresh2p,
+                            data: Vec::new(),
+                        },
+                    )
+                }
+            }
+            ABORT // oh no, this is sad
         }
 
         _ => ABORT
