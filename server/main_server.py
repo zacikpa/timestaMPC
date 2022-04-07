@@ -34,7 +34,7 @@ class SignerManager:
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
-            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port")))
+            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port"), self.symmetric_key, self.iv))
         for instance in self.signer_instances:
             if not (await instance.connect()):
                 return False

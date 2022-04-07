@@ -2,6 +2,8 @@ import asyncio
 import json
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+
 
 BUFFER_SIZE = 100000
 
@@ -32,7 +34,10 @@ class SignerInstance:
             ).encode('utf-8')
         
         if not skip_encrypt:
-            payload = self.encryptor.update(payload) + self.encryptor.finalize()
+            padder = padding.PKCS7(256).padder()
+            padded_data = padder.update(payload)
+            padded_data += padder.finalize()
+            payload = self.encryptor.update(padded_data) + self.encryptor.finalize()
             
         try:
             self.writer.write(payload)
@@ -42,7 +47,7 @@ class SignerInstance:
 
     async def recv(self, size, skip_decrypt=False):
         try:
-            data = (await self.reader.read(size)).decode("utf8")
+            data = (await self.reader.read(size))
         except (ConnectionResetError, BrokenPipeError):
             data = ""
         if len(data) == 0:
@@ -50,7 +55,10 @@ class SignerInstance:
 
         if not skip_decrypt:
             data = self.decryptor.update(data) + self.decryptor.finalize()
-        return data
+            unpadder = padding.PKCS7(256).unpadder()
+            data = unpadder.update(data)
+            data += unpadder.finalize()
+        return data.decode()
 
     def is_connected(self):
         return self.connected
