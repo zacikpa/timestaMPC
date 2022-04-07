@@ -3,10 +3,16 @@
 import asyncio
 import json
 import sys
+import glob
+import secrets
 from base64 import b64encode
 from datetime import datetime
 from typing import Dict, List
 from signer_instance import SignerInstance
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers.algorithms import AES
 
 REQUEST_QUEUE = asyncio.Queue()
 RESPONSE_QUEUE = asyncio.Queue()
@@ -22,6 +28,9 @@ class SignerManager:
         self.signer_instances: List[SignerInstance] = []
         self.active_signers = []
         self.buffer_size = self.num_parties * BUFFER_SIZE_PER_PARTY
+        self.signer_public_keys = []
+        self.symmetric_key = secrets.token_bytes(32)
+        self.iv = secrets.token_bytes(16)
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
@@ -30,6 +39,26 @@ class SignerManager:
             if not (await instance.connect()):
                 return False
         return True
+    
+    
+    def load_keyfiles(self, dirname: str):
+        keyfiles = glob.glob(f'{dirname}/*.pub')
+        for filename in keyfiles:
+            with open(filename, "rb") as key_file:
+                self.signer_public_keys.append(
+                    serialization.load_pem_public_key(key_file.read())
+                    )
+                
+    def distribute_symmetric_key(self):
+        print(f"Symmetric key:{b64encode(self.symmetric_key).decode()}")
+        for index, signer in enumerate(self.signer_instances):
+            public_key = self.signer_public_keys[index]
+            encrypted_key = public_key.encrypt(
+                self.symmetric_key + self.iv,
+                padding.PKCS1v15()
+            )
+            payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
+            signer.send(payload)
 
     @staticmethod
     async def _distribute_data(messages, request_type, instances: List[SignerInstance]):
@@ -207,7 +236,9 @@ def to_byte_array(data):
     return [x for x in bytes(data, 'utf-8')]
 
 
-async def signer_manager(manager: SignerManager):
+async def signer_manager(manager: SignerManager, pubkey_directory: str):
+    manager.load_keyfiles(pubkey_directory)
+    manager.distribute_symmetric_key()
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
     try:
@@ -251,16 +282,19 @@ async def signer_manager(manager: SignerManager):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage:", sys.argv[0], "CONFIG_FILE")
+    if len(sys.argv) != 3:
+        print("Usage:", sys.argv[0], "CONFIG_FILE PUBLIC_KEY_DIRECTORY")
+        return
+    
     config_filename = sys.argv[1]
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
+    pubkey_directory = sys.argv[2]
     manager = SignerManager(config)
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(asyncio.start_server(handle_client, config.get("host"), config.get("port")))
-    loop.run_until_complete(signer_manager(manager))
+    loop.run_until_complete(signer_manager(manager, pubkey_directory))
 
     try:
         print("Running... Press ^C to shutdown")
