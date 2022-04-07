@@ -29,9 +29,9 @@ class SignerInstance:
         except (ConnectionResetError, BrokenPipeError):
             self.connected = False
 
-    async def recv(self):
+    async def recv(self, size):
         try:
-            data = (await self.reader.read(BUFFER_SIZE)).decode("utf8")
+            data = (await self.reader.read(size)).decode("utf8")
         except (ConnectionResetError, BrokenPipeError):
             data = ""
         if len(data) == 0:

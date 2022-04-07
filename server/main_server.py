@@ -10,6 +10,8 @@ from signer_instance import SignerInstance
 
 REQUEST_QUEUE = asyncio.Queue()
 RESPONSE_QUEUE = asyncio.Queue()
+CLIENT_BUFFER_SIZE = 2000
+BUFFER_SIZE_PER_PARTY = 10000
 
 
 class SignerManager:
@@ -19,6 +21,7 @@ class SignerManager:
         self.signers: List[Dict] = config.get("signers")
         self.signer_instances: List[SignerInstance] = []
         self.active_signers = []
+        self.buffer_size = self.num_parties * BUFFER_SIZE_PER_PARTY
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
@@ -37,10 +40,9 @@ class SignerManager:
         for signer in self.signer_instances:
             await signer.send(build_payload("GenerateKey", []))
 
-    @staticmethod
-    async def _recv_to_array(array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False) -> None:
+    async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False) -> None:
         for index, signer in enumerate(instances):
-            recv = await signer.recv()
+            recv = await signer.recv(self.buffer_size)
             print(recv)
             recv_dct = json.loads(recv)
             if (recv_type := recv_dct.get("response_type")) != expected_phase:
@@ -82,20 +84,20 @@ class SignerManager:
         for phase in range(5):
             recv_messages = [None for _ in self.signers]
             if phase == 2:
-                await SignerManager._recv_to_array(recv_messages, "GenerateKey", self.signer_instances,  True)
+                await self._recv_to_array(recv_messages, "GenerateKey", self.signer_instances,  True)
                 send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             else:
-                await SignerManager._recv_to_array(recv_messages, "GenerateKey", self.signer_instances)
+                await self._recv_to_array(recv_messages, "GenerateKey", self.signer_instances)
                 send_messages = self._build_distributed_data(recv_messages, self.signer_instances)
             await SignerManager._distribute_data(send_messages, "GenerateKey", self.signer_instances)
 
         key_gen_sign_contexts = [None for _ in self.signers]
-        await SignerManager._recv_to_array(key_gen_sign_contexts, "GenerateKey", self.signer_instances)
+        await self._recv_to_array(key_gen_sign_contexts, "GenerateKey", self.signer_instances)
         return key_gen_sign_contexts
 
     async def _get_signer(self, index):
         signer = self.signer_instances[index]
-        response = await signer.recv()
+        response = await signer.recv(self.buffer_size)
         print(f'for index {index} response {response}')
         return index, response
 
@@ -135,7 +137,7 @@ class SignerManager:
             dump = json.dumps(payload).encode('utf-8')
             print(dump)
             await signer.send(payload)
-            await signer.recv()
+            await signer.recv(self.buffer_size)
 
     async def mp_sign(self):
         active_signer_instances = [self.signer_instances[i] for i in self.active_signers]
@@ -143,15 +145,15 @@ class SignerManager:
         for phase in range(9):
             recv_messages = [None for _ in range(self.threshold)]
             if phase == 1:
-                await SignerManager._recv_to_array(recv_messages, "Sign", active_signer_instances,  True)
+                await self._recv_to_array(recv_messages, "Sign", active_signer_instances,  True)
                 send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             else:
-                await SignerManager._recv_to_array(recv_messages, "Sign", active_signer_instances)
+                await self._recv_to_array(recv_messages, "Sign", active_signer_instances)
                 send_messages = self._build_distributed_data(recv_messages, active_signer_instances)
             await SignerManager._distribute_data(send_messages, "Sign", active_signer_instances)
 
         signatures = [None for _ in range(self.threshold)]
-        await SignerManager._recv_to_array(signatures, "Sign", active_signer_instances)
+        await self._recv_to_array(signatures, "Sign", active_signer_instances)
         print("Signing done")
         return signatures
 
@@ -182,7 +184,7 @@ async def handle_command(data) -> str:
 
 
 async def handle_client(reader, writer):
-    request_data = (await reader.read(BUFFER_SIZE)).decode("utf-8")
+    request_data = (await reader.read(CLIENT_BUFFER_SIZE)).decode("utf-8")
     request = json.loads(request_data)
     response_data = await handle_command(request)
 
@@ -248,9 +250,6 @@ def main():
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
     manager = SignerManager(config)
-
-    global BUFFER_SIZE
-    BUFFER_SIZE = 10000 * config.get("num_parties")
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(asyncio.start_server(handle_client, config.get("host"), config.get("port")))
