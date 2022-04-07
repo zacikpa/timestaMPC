@@ -7,9 +7,8 @@ mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
-use crate::requests::{process_request, response_bytes_to_b64, Context, Request, Config, ResponseType, ResponseWithBytes};
+use crate::requests::{process_request, response_bytes_to_b64, Context, Request, Config, ResponseType, ResponseWithBytes, Response};
 use std::env;
-use std::str;
 
 const BUFFER_SIZE_PER_PARTY: usize = 10_000;
 
@@ -68,41 +67,42 @@ fn main() {
                 // Read an incoming request
                 let mut size = 0;
                 let mut request_buffer = vec![0; BUFFER_SIZE_PER_PARTY * config.num_parties as usize];
+                let request: Request;
 
-                while serde_json::from_slice::<Request>(&request_buffer[..size]).is_err() {
-                    let new_size = match socket.read(&mut request_buffer[size..]) {
-                        Ok(size) => size,
-                        Err(e) => {
-                            eprintln!("Error: {}", e.to_string());
-                            break 'outer
-                        }
-                    };
+                'inner: loop {
+                    let request_result = serde_json::from_slice::<Request>(&request_buffer[..size]);
+                    if !request_result.is_err() {
+                        request = request_result.unwrap();
+                        break 'inner;
+                    }
+                    let new_size_result = socket.read(&mut request_buffer[size..]);
+                    let new_size: usize;
+                    if !new_size_result.is_err() {
+                        new_size = new_size_result.unwrap()
+                    } else {
+                        new_size = 0;
+                    }
                     if new_size == 0 {
-                        eprintln!("Error: Reached EOF");
-                        break 'outer
+                        eprintln!("Error reading from socket.");
+                        let response_abort = Response {
+                            response_type: ResponseType::Abort,
+                            data: Vec::new()
+                        };
+                        let json_abort = serde_json::to_vec(&response_abort).unwrap();
+                        context = Context::Empty;
+                        let write_result = socket.write_all(&json_abort);
+                        if write_result.is_err() {
+                            eprintln!("Error: {}", write_result.unwrap_err().to_string());
+                            break 'outer;
+                        }
+                        continue 'outer;
                     }
                     size += new_size;
                 }
 
-                println!("Read size to socket {:?}", size);
-                println!("Data: {:?}", str::from_utf8(&request_buffer[..size]).unwrap());
-
                 // Process the request and create a response
-                let request = serde_json::from_slice::<Request>(&request_buffer[..size]);
                 println!("Got request: {:?}", request);
-                (context, response) = match request {
-                    Ok(req) => process_request(&context, &config, req),
-                    Err(e) => {
-                        eprintln!("Error: {}", e.to_string());
-                        (
-                            Context::Empty,
-                            ResponseWithBytes {
-                                response_type: ResponseType::Abort,
-                                data: Vec::new()
-                            }
-                        )
-                    }
-                };
+                (context, response) = process_request(&context, &config, request);
                 let response_b64 = response_bytes_to_b64(response);
                 println!("Sending response: {:?}", &response_b64);
 
