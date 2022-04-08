@@ -257,9 +257,15 @@ pub fn process_request(
                     },
                 )
             }
+            // decrypt symmetric keys from signers
+            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
+            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
 
             for i in 0..config.index {
-                if fs::write(format!("{}{}", config.symm_path, i), &request_data[i as usize]).is_err(){
+                let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
+                let r = private_rsa.private_decrypt(&request_data[i as usize], &mut symm_key, Padding::PKCS1);
+
+                if r.is_err() || fs::write(format!("{}{}", config.symm_path, i), &symm_key[..32]).is_err() {
                     return (
                         Context::WaitingForKeys,
                         ResponseWithBytes {
