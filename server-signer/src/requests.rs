@@ -156,13 +156,12 @@ pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
         return response
     }
     let symm = symm.unwrap();
-    println!("Loaded symmetric key length: {}", symm.len());
     //encrypt
+    println!("encrypting response");
     let cipher = Cipher::aes_256_cbc();
     let mut iv : [u8; 16] = [0; 16];
     rand_bytes(&mut iv).unwrap();
     let mut encrypted_response = encrypt(cipher, &symm, Some(&iv), &response).unwrap();
-
     let mut result_vec = iv.to_vec();
     result_vec.append(&mut encrypted_response);
     result_vec
@@ -173,8 +172,9 @@ pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
     // load key
     println!("decrypting request");
     let symm = fs::read(&format!("{}{}", config.symm_path, "_manager"));
-    if symm.is_err() {
+    if symm.is_err() || enc_request.len() < 16 {
         // this is probably first message with keys not yet established, try to parse original data
+        // or it is too short to be decrypted
         return enc_request.to_vec();
     }
 
@@ -221,7 +221,7 @@ pub fn process_request(
                     // generate random key
                     rand_bytes(&mut symm_key).unwrap();
                     // save it
-                    if fs::write(format!("{}{}", config.symm_path, i), symm_key).is_err(){
+                    if fs::write(format!("{}_{}", config.symm_path, i), symm_key).is_err(){
                         return ABORT
                     }
                     // load RSA public key for corresponding party
@@ -265,7 +265,7 @@ pub fn process_request(
                 let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
                 let r = private_rsa.private_decrypt(&request_data[i as usize], &mut symm_key, Padding::PKCS1);
 
-                if r.is_err() || fs::write(format!("{}{}", config.symm_path, i), &symm_key[..32]).is_err() {
+                if r.is_err() || fs::write(format!("{}_{}", config.symm_path, i), &symm_key[..32]).is_err() {
                     return (
                         Context::WaitingForKeys,
                         ResponseWithBytes {

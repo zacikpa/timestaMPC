@@ -50,7 +50,6 @@ class SignerManager:
         keyfiles = glob.glob(f'{dirname}/*.pub')
         keyfiles.sort()
         for filename in keyfiles:
-            print(filename)
             with open(filename, "rb") as key_file:
                 self.signer_public_keys.append(
                     serialization.load_pem_public_key(key_file.read())
