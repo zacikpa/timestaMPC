@@ -150,10 +150,16 @@ pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
 
 pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
     // load key
-    let symm : Vec<u8> = fs::read(&format!("{}{}", config.symm_path, "_manager")).unwrap();
+    let symm = fs::read(&format!("{}{}", config.symm_path, "_manager"));
+    if symm.is_err(){
+        // symmetric key probably not yet established
+        return response
+    }
+    let symm = symm.unwrap();
+    println!("Loaded symmetric key length: {}", symm.len());
     //encrypt
     let cipher = Cipher::aes_256_cbc();
-    let mut iv = [0, 16];
+    let mut iv : [u8; 16] = [0; 16];
     rand_bytes(&mut iv).unwrap();
     let mut encrypted_response = encrypt(cipher, &symm, Some(&iv), &response).unwrap();
 
@@ -165,6 +171,7 @@ pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
 
 pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
     // load key
+    println!("decrypting request");
     let symm = fs::read(&format!("{}{}", config.symm_path, "_manager"));
     if symm.is_err() {
         // this is probably first message with keys not yet established, try to parse original data
@@ -198,9 +205,11 @@ pub fn process_request(
             let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
             let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
             // decrypt symmetric key shared with manager server
-            let r = private_rsa.private_decrypt(&request_data[0][16..], &mut symm_key, Padding::PKCS1);
+            println!("data size: {}, rsa size: {}", request_data[0].len(), private_rsa.size());
+            let r = private_rsa.private_decrypt(&request_data[0], &mut symm_key, Padding::PKCS1);
 
-            if r.is_err() || fs::write(format!("{}{}", config.symm_path, "_manager"), symm_key).is_err() {
+            if r.is_err() || fs::write(format!("{}{}", config.symm_path, "_manager"), &symm_key[..32]).is_err() {
+                println!("decryption error: {}", r.is_err());
                 return ABORT
             }
             // generate symmetric keys shared with other signers
@@ -216,8 +225,9 @@ pub fn process_request(
                         return ABORT
                     }
                     // load RSA public key for corresponding party
-                    let pub_rsa : String = fs::read_to_string(&config.pub_keys_paths[i as usize]).unwrap().parse().unwrap();
-                    let public_rsa = Rsa::public_key_from_pem(pub_rsa.as_bytes()).unwrap();
+                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
+                    println!("{}", std::str::from_utf8(&pub_rsa).unwrap());
+                    let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
                     // encrypt the symm key
                     let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
                     let _ = public_rsa.public_encrypt(&symm_key, &mut encrypted, Padding::PKCS1).unwrap();
