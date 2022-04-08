@@ -7,8 +7,8 @@ mod requests;
 use std::net::TcpListener;
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
-use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, Context, Request,
-                      Config, ResponseType, ResponseWithBytes, Response};
+use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, decrypt_request,
+                      Context, Request, Config, ResponseType, ResponseWithBytes, Response};
 use std::env;
 
 const BUFFER_SIZE_PER_PARTY: usize = 10_000;
@@ -71,7 +71,9 @@ fn main() {
                 let request: Request;
 
                 'inner: loop {
-                    let request_result = serde_json::from_slice::<Request>(&request_buffer[..size]);
+                    let decrypt_result = decrypt_request(&request_buffer[..size], &config);
+
+                    let request_result = serde_json::from_slice::<Request>(&decrypt_result);
                     if !request_result.is_err() {
                         request = request_result.unwrap();
                         break 'inner;
