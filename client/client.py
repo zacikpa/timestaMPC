@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+import argparse
 from base64 import b64encode, b64decode
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, utils, padding
@@ -11,7 +12,9 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.x509.oid import NameOID
 from datetime import datetime
 
-
+SERVER_HOST = "localhost"
+SERVER_NAME = "TimestaMPC"
+SERVER_PORT = 15555
 BUFFER_SIZE = 2000
 CA_CERTIFICATE = b"""
 -----BEGIN CERTIFICATE-----
@@ -46,44 +49,55 @@ a/AEwkAi
 
 
 class TMPCClient:
-    def __init__(self, hostname, port) -> None:
+    def __init__(self, hostname: str, port: int) -> None:
         self.hostname = hostname
         self.port = port
 
-    async def connect(self):
+    async def connect(self) -> None:
         self.reader, self.writer = await asyncio.open_connection(
             self.hostname, self.port
         )
 
-    def send_data(self, data):
-        self.writer.write(bytes(data, encoding="utf-8"))
+    def send_data(self, data: str) -> None:
+        self.writer.write(data.encode())
 
-    async def receive_data(self):
+    async def receive_data(self) -> str:
         return (await self.reader.read(BUFFER_SIZE)).decode()
 
-    def close(self):
+    def close(self) -> None:
         self.writer.close()
 
 
 def hash_document(filename: str) -> str:
-    digest = hashes.Hash(hashes.SHA3_256())
+    digest = hashes.Hash(hashes.SHA256())
     with open(filename, "r") as f:
         for line in f:
-            digest.update(line.encode("utf-8"))
-
+            digest.update(line.encode())
     return digest.finalize()
 
 
-async def sign_document(client: TMPCClient, filename: str):
+async def sign_document(client: TMPCClient, filename: str) -> None:
     await client.connect()
-    hash_of_document = b64encode(hash_document(filename)).decode()
-    client.send_data(json.dumps({"command": "sign", "data": hash_of_document}))
+    document_hash = b64encode(hash_document(filename)).decode()
+    client.send_data(
+        json.dumps(
+            {
+                "command": "sign",
+                "data": document_hash
+            }
+        )
+    )
     resp = await client.receive_data()
-    print(resp)
+    resp_json = json.loads(resp)
+    print(json.dumps(resp_json, indent=4))
 
 
-def verify_certificate(name, certificate, ca_certificate):
-    # Check the signature
+def verify_certificate(
+    name: str,
+    certificate: x509.Certificate,
+    ca_certificate: x509.Certificate
+) -> bool:
+    # Check the signature in the certificate
     try:
         ca_certificate.public_key().verify(
             certificate.signature,
@@ -92,62 +106,94 @@ def verify_certificate(name, certificate, ca_certificate):
             certificate.signature_hash_algorithm
         )
     except InvalidSignature:
+        print("invalid signature in the certificate")
         return False
 
-    # Check the name
-    common_names = [name.value for name in certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)]
-    if name not in common_names:
+    # Check the name, it must match the given one
+    names = certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    if name not in [n.value for n in names]:
+        print("invalid name in the certificate")
         return False
 
     # Check the time validity
-    if certificate.not_valid_after < datetime.now() or certificate.not_valid_before > datetime.now():
+    if certificate.not_valid_after < datetime.now():
+        print("certificate is expired")
+        return False
+
+    if certificate.not_valid_before > datetime.now():
+        print("certificate is not yet valid")
         return False
 
     return True
 
 
-def verify_signature(filename: str, response_filename: str):
-    with open(response_filename) as f:
-        response = json.load(f)
-
+def verify_signature(document_filename: str, response) -> None:
+    # We will need the CA public key to verify the received certificate
     ca_certificate = x509.load_pem_x509_certificate(CA_CERTIFICATE)
-    certificate = x509.load_pem_x509_certificate(response.get("certificate").encode())
 
-    data_to_verify = hash_document(filename) + response.get("timestamp").encode()
+    if "certificate" not in response:
+        print("no certificate in the response")
+        return
 
-    if not verify_certificate("TimestaMPC", certificate, ca_certificate):
+    certificate = x509.load_pem_x509_certificate(
+        response["certificate"].encode()
+    )
+
+    # Verify that the received certificate is valid
+    if not verify_certificate(SERVER_NAME, certificate, ca_certificate):
         print("certificate invalid")
         return
     print("certificate valid")
 
-    signature_raw = b64decode(response.get("signature").encode())
+    if "timestamp" not in response:
+        print("no timestamp in the response")
+        return
+
+    # The signature should be done on H(H(document) || timestamp)
+    document_hash = hash_document(document_filename)
+    data_to_verify = document_hash + response["timestamp"].encode()
+
+    if "signature" not in response:
+        print("no signature in the response")
+        return
+
+    # Load the signature from the received raw format
+    signature_raw = b64decode(response["signature"].encode())
     r = int.from_bytes(signature_raw[:32], byteorder="big")
     s = int.from_bytes(signature_raw[32:], byteorder="big")
     signature = utils.encode_dss_signature(r, s)
 
+    # Verify that the signature is valid
     try:
-        certificate.public_key().verify(signature, data_to_verify, ec.ECDSA(hashes.SHA256()))
+        certificate.public_key().verify(
+            signature, data_to_verify, ec.ECDSA(hashes.SHA256())
+        )
     except InvalidSignature:
         print("signature invalid")
         return
     print("signature valid")
 
-    unix_timestamp = int(response.get("timestamp"))
+    # If valid, print the received timestamp and signature
+    unix_timestamp = int(response["timestamp"])
     print("timestamp: {}".format(datetime.fromtimestamp(unix_timestamp)))
+    print("signature: {}".format(response["signature"]))
 
 
 def main():
-    if len(sys.argv) == 3:
-        _, _, filename = sys.argv
-        client = TMPCClient("localhost", 15555)
-        asyncio.run(sign_document(client, filename))
-    elif len(sys.argv) == 4:
-        _, _, filename, response_file = sys.argv
-        verify_signature(filename, response_file)
-    else:
-        print(
-            "USAGE: ./client.py sign filename\n      ./client.py verify filename response_file"
-        )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command")
+    parser.add_argument("document_file")
+    args = parser.parse_args()
+
+    if args.command == "sign":
+        client = TMPCClient(SERVER_HOST, SERVER_PORT)
+        asyncio.run(sign_document(client, args.document_file))
+        return
+
+    if args.command == "verify":
+        response = json.load(sys.stdin)
+        verify_signature(args.document_file, response)
+        return
 
 
 if __name__ == "__main__":
