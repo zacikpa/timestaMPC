@@ -13,6 +13,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = "0.4"
 base64 = "0.13.0"
+aes = "0.8.1"
+block-modes="0.8.1"
+rsa = "0.5.0"
+openssl = "0.10.28"
 zk-paillier = { version = "0.4.3", default-features = false }
 
 [dependencies.multi-party-ecdsa]

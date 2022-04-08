@@ -48,11 +48,7 @@ pub struct Li17SignContext3 {
 
 pub type Li17SignMsg3 = (party_two::PartialSig, party_two::EphKeyGenSecondMsg);
 
-pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Context, ResponseWithBytes) {
-
-    if message_hash.is_empty() {
-        return ABORT
-    }
+pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<u8> ) -> (Context, ResponseWithBytes) {
 
     if context.index == 0 {
         let context1 = Li17SignContext1 {
@@ -61,7 +57,7 @@ pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Co
             p1_private: context.p1_private,
             p2_private: context.p2_private,
             p2_paillier_public: context.p2_paillier_public,
-            hash: BigInt::from_bytes(&message_hash[0]),
+            hash: BigInt::from_bytes(&message_hash),
             p2_eph_comm_witness: None,
             p2_eph_ec_key_pair: None,
 
@@ -78,7 +74,7 @@ pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Co
             p1_private: context.p1_private,
             p2_private: context.p2_private,
             p2_paillier_public: context.p2_paillier_public,
-            hash: BigInt::from_bytes(&message_hash[0]),
+            hash: BigInt::from_bytes(&message_hash),
             p2_eph_comm_witness: Some(eph_comm_witness),
             p2_eph_ec_key_pair: Some(eph_ec_key_pair_party2),
         };
