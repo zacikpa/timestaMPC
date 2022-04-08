@@ -3,8 +3,9 @@
 import asyncio
 import json
 import sys
-from base64 import b64encode
-from cryptography.hazmat.primitives import hashes, asymmetric
+from base64 import b64encode, b64decode
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, utils, padding
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.x509.oid import NameOID
@@ -70,12 +71,12 @@ def hash_document(filename: str) -> str:
         for line in f:
             digest.update(line.encode("utf-8"))
 
-    return b64encode(digest.finalize()).decode()
+    return digest.finalize()
 
 
 async def sign_document(client: TMPCClient, filename: str):
     await client.connect()
-    hash_of_document = hash_document(filename)
+    hash_of_document = b64encode(hash_document(filename)).decode()
     client.send_data(json.dumps({"command": "sign", "data": hash_of_document}))
     resp = await client.receive_data()
     print(resp)
@@ -87,7 +88,7 @@ def verify_certificate(name, certificate, ca_certificate):
         ca_certificate.public_key().verify(
             certificate.signature,
             certificate.tbs_certificate_bytes,
-            asymmetric.padding.PKCS1v15(),
+            padding.PKCS1v15(),
             certificate.signature_hash_algorithm
         )
     except InvalidSignature:
@@ -108,23 +109,31 @@ def verify_certificate(name, certificate, ca_certificate):
 def verify_signature(filename: str, response_filename: str):
     with open(response_filename) as f:
         response = json.load(f)
-    hash_of_document = hash_document(filename)
 
     ca_certificate = x509.load_pem_x509_certificate(CA_CERTIFICATE)
     certificate = x509.load_pem_x509_certificate(response.get("certificate").encode())
 
-    digest = hashes.Hash(hashes.SHA256())
-    digest.update(bytes(hash_of_document + response.get("timestamp"), "utf-8"))
-    hash_to_verify = digest.finalize()
+    data_to_verify = hash_document(filename) + response.get("timestamp").encode()
 
     if not verify_certificate("TimestaMPC", certificate, ca_certificate):
         print("certificate invalid")
         return
+    print("certificate valid")
 
-    if hash_to_verify != response.get("signature"):
+    signature_raw = b64decode(response.get("signature").encode())
+    r = int.from_bytes(signature_raw[:32], byteorder="big")
+    s = int.from_bytes(signature_raw[32:], byteorder="big")
+    signature = utils.encode_dss_signature(r, s)
+
+    try:
+        certificate.public_key().verify(signature, data_to_verify, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
         print("signature invalid")
-    else:
-        print("signature valid")
+        return
+    print("signature valid")
+
+    unix_timestamp = int(response.get("timestamp"))
+    print("timestamp: {}".format(datetime.fromtimestamp(unix_timestamp)))
 
 
 def main():
