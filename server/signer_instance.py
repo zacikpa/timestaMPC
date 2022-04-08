@@ -1,5 +1,6 @@
 import asyncio
 import json
+import secrets
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -15,10 +16,30 @@ class SignerInstance:
         self.reader, self.writer = None, None
         self.index = index
         self.connected = False
+        self.symmetric_key = symmetric_key
         cipher = Cipher(algorithms.AES(symmetric_key), modes.CBC(iv))
         self.encryptor = cipher.encryptor()
         self.decryptor = cipher.decryptor()
 
+    def encrypt(self, data):
+        padder = padding.PKCS7(256).padder()
+        padded_data = padder.update(data)
+        padded_data += padder.finalize()
+        
+        iv = secrets.token_bytes(16)
+        cipher = Cipher(algorithms.AES(self.symmetric_key), modes.CBC(iv))
+        encryptor = cipher.encryptor()
+        return iv + encryptor.update(padded_data) + encryptor.finalize()
+    
+    def decrypt(self, payload):
+        iv, data = payload[:16], payload[16:]
+        cipher = Cipher(algorithms.AES(self.symmetric_key), modes.CBC(iv))
+        decryptor = cipher.decryptor()
+        data = decryptor.update(data) + decryptor.finalize()
+        unpadder = padding.PKCS7(256).unpadder()
+        data = unpadder.update(data)
+        data += unpadder.finalize()
+        return data
 
     async def connect(self) -> bool:
         try:
@@ -34,10 +55,7 @@ class SignerInstance:
             ).encode('utf-8')
         
         if not skip_encrypt:
-            padder = padding.PKCS7(256).padder()
-            padded_data = padder.update(payload)
-            padded_data += padder.finalize()
-            payload = self.encryptor.update(padded_data) + self.encryptor.finalize()
+            payload = self.encrypt(payload)
             
         try:
             self.writer.write(payload)
