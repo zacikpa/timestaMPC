@@ -34,11 +34,10 @@ class SignerManager:
         self.active_signers = []
         self.buffer_size = self.num_parties * BUFFER_SIZE_PER_PARTY
         self.signer_public_keys = []
-        self.symmetric_key = secrets.token_bytes(32)
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
-            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port"), self.symmetric_key))
+            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port")))
         for instance in self.signer_instances:
             if not (await instance.connect()):
                 return False
@@ -55,11 +54,11 @@ class SignerManager:
                     )
 
     async def distribute_symmetric_key(self):
-        print(f"Symmetric key:{b64encode(self.symmetric_key).decode()}")
+
         for index, signer in enumerate(self.signer_instances):
             public_key = self.signer_public_keys[index]
             encrypted_key = public_key.encrypt(
-                self.symmetric_key,
+                signer.symmetric_key,
                 padding.PKCS1v15()
             )
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
