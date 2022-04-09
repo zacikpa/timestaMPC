@@ -48,7 +48,7 @@ pub struct Li17SignContext3 {
 
 pub type Li17SignMsg3 = (party_two::PartialSig, party_two::EphKeyGenSecondMsg);
 
-pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Context, ResponseWithBytes) {
+pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<u8>) -> (Context, ResponseWithBytes) {
 
     if message_hash.is_empty() {
         return ABORT
@@ -61,13 +61,13 @@ pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Co
             p1_private: context.p1_private,
             p2_private: context.p2_private,
             p2_paillier_public: context.p2_paillier_public,
-            hash: BigInt::from_bytes(&message_hash[0]),
+            hash: BigInt::from_bytes(&message_hash),
             p2_eph_comm_witness: None,
             p2_eph_ec_key_pair: None,
 
         };
         (Context::Sign2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::Sign2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     } else {
         let (eph_party_two_first_message, eph_comm_witness, eph_ec_key_pair_party2) =
                         party_two::EphKeyGenFirstMsg::create_commitments();
@@ -78,7 +78,7 @@ pub fn li17_sign1( context: Li17SignContext, message_hash: Vec<Vec<u8>> ) -> (Co
             p1_private: context.p1_private,
             p2_private: context.p2_private,
             p2_paillier_public: context.p2_paillier_public,
-            hash: BigInt::from_bytes(&message_hash[0]),
+            hash: BigInt::from_bytes(&message_hash),
             p2_eph_comm_witness: Some(eph_comm_witness),
             p2_eph_ec_key_pair: Some(eph_ec_key_pair_party2),
         };
@@ -139,7 +139,7 @@ pub fn li17_sign2( msg: Vec<Vec<u8>>, context: &Li17SignContext1) -> (Context, R
 
         };
         (Context::Sign2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::Sign2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     }
 }
 
@@ -157,7 +157,7 @@ pub fn li17_sign3( msg: Vec<Vec<u8>>, context: &Li17SignContext2) -> (Context, R
             p1_msg1_from_p2: context.p1_msg1_from_p2.clone(),
         };
         (Context::Sign2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::Sign2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
 
     } else {
         if msg.is_empty() {
@@ -256,7 +256,7 @@ pub fn li17_sign4( msg: Vec<Vec<u8>>, context: &Li17SignContext3) -> Result<Vec<
         if party_one::verify(&sig, &context.public, &context.hash).is_err() {
             return Err("invalid signature")
         }
-        return Ok([sig.r.to_bytes(), sig.s.to_bytes()].concat())
+        return Ok([BigInt::to_bytes(&sig.r), BigInt::to_bytes(&sig.s)].concat())
 
     } else {
         return Ok(Vec::new())

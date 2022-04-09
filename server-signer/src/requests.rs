@@ -306,7 +306,14 @@ pub fn process_request(
                 eprintln!("Failed to parse setup file.");
                 return ABORT
             }
-            li17_sign1(context.unwrap(), request_data)
+            if request.data.len() < 2 || !check_time(config, request_data[1].clone()) {
+                return ABORT
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(request_data[0].clone());
+            hasher.update(request_data[1].clone());
+            let hash = hasher.finalize();
+            li17_sign1(context.unwrap(), hash.to_vec())
         }
 
         (Context::Sign2pContext1(context), RequestType::Sign2p) => li17_sign2(request_data, context),
@@ -321,7 +328,7 @@ pub fn process_request(
             (
                 Context::Empty,
                 ResponseWithBytes {
-                    response_type: ResponseType::Sign,
+                    response_type: ResponseType::Sign2p,
                     data: vec![s.unwrap()],
                 },
             )
@@ -353,8 +360,8 @@ pub fn process_request(
             (
                 Context::Refresh2pContext4(c.unwrap()),
                 ResponseWithBytes {
-                    response_type: ResponseType::GenerateKey2p,
-                    data: Vec::new(),
+                    response_type: ResponseType::Refresh2p,
+                    data: vec![Vec::new()],
                 },
             )
         }
@@ -367,7 +374,7 @@ pub fn process_request(
                         Context::Empty,
                         ResponseWithBytes {
                             response_type: ResponseType::Refresh2p,
-                            data: Vec::new(),
+                            data: vec![Vec::new()],
                         },
                     )
                 }

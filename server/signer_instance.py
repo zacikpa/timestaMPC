@@ -1,24 +1,14 @@
 import asyncio
 import json
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-
-
-BUFFER_SIZE = 100000
-
 
 class SignerInstance:
-    def __init__(self, index, host, port, symmetric_key, iv) -> None:
+    def __init__(self, index, host, port) -> None:
         self.host = host
         self.port = port
         self.reader, self.writer = None, None
         self.index = index
         self.connected = False
-        cipher = Cipher(algorithms.AES(symmetric_key), modes.CBC(iv))
-        self.encryptor = cipher.encryptor()
-        self.decryptor = cipher.decryptor()
-
 
     async def connect(self) -> bool:
         try:
@@ -28,36 +18,19 @@ class SignerInstance:
             return False
         return True
 
-    async def send(self, payload, skip_encrypt=False):
-        payload = json.dumps(
-                payload
-            ).encode('utf-8')
-        
-        if not skip_encrypt:
-            padder = padding.PKCS7(256).padder()
-            padded_data = padder.update(payload)
-            padded_data += padder.finalize()
-            payload = self.encryptor.update(padded_data) + self.encryptor.finalize()
-            
+    async def send(self, payload):
+        payload = json.dumps(payload).encode()
         try:
             self.writer.write(payload)
             await self.writer.drain()
         except (ConnectionResetError, BrokenPipeError):
             self.connected = False
 
-    async def recv(self, size, skip_decrypt=False):
+    async def recv(self, size):
         try:
             data = (await self.reader.read(size))
         except (ConnectionResetError, BrokenPipeError):
-            data = ""
-        if len(data) == 0:
-            self.connected = False
-
-        if not skip_decrypt:
-            data = self.decryptor.update(data) + self.decryptor.finalize()
-            unpadder = padding.PKCS7(256).unpadder()
-            data = unpadder.update(data)
-            data += unpadder.finalize()
+            data = b""
         return data.decode()
 
     def is_connected(self):
