@@ -36,7 +36,7 @@ pub struct Config {
     pub context_path: String,
     pub private_rsa: String,
     pub pub_keys_paths: Vec<String>,
-    pub symm_path: String,
+    pub symm_keys_folder: String,
     pub host: String,
     pub port: u16,
     pub num_parties: u16,
@@ -150,7 +150,7 @@ pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
 
 pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
     // load key
-    let symm = fs::read(&format!("{}{}", config.symm_path, "_manager"));
+    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
     if symm.is_err(){
         // symmetric key probably not yet established
         return response
@@ -171,7 +171,7 @@ pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
 pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
     // load key
     println!("decrypting request");
-    let symm = fs::read(&format!("{}{}", config.symm_path, "_manager"));
+    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
     if symm.is_err() || enc_request.len() < 16 {
         // this is probably first message with keys not yet established, try to parse original data
         // or it is too short to be decrypted
@@ -182,6 +182,67 @@ pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
     let request = decrypt(cipher, &symm.unwrap(), Some(&enc_request[0..16]), &enc_request[16..]);
     request.unwrap()
 }
+
+pub fn encrypt_payload( response: (Context, ResponseWithBytes), config: &Config, parties: Vec<u16>) -> (Context, ResponseWithBytes) {
+    let data = response.1.data;
+    let mut result : Vec<Vec<u8>> = Vec::new();
+    let mut j = 0;
+    for i in 0..parties.len() {
+        if parties[i] == config.index {
+            continue;
+        }
+        if data[j].is_empty() {
+            result.push(Vec::new());
+            j += 1;
+            continue;
+        }
+        let key = fs::read(&format!("{}/symm{}_{}", config.symm_keys_folder, config.index, parties[i]));
+        if key.is_err() || data[j].len() < 16 {
+            return ABORT
+        }
+        let cipher = Cipher::aes_256_cbc();
+        let mut iv : [u8; 16] = [0; 16];
+        rand_bytes(&mut iv).unwrap();
+        let encrypted_data = encrypt(cipher, &key.unwrap(), Some(&iv), &data[j]);
+        if encrypted_data.is_err() {
+            return ABORT
+        }
+        let mut encrypted_data_iv = iv.to_vec();
+        encrypted_data_iv.append(&mut encrypted_data.unwrap());
+
+        result.push(encrypted_data_iv);
+        j += 1;
+    }
+    (response.0, ResponseWithBytes{ response_type: response.1.response_type, data: result})
+}
+
+pub fn decrypt_payload( data: Vec<Vec<u8>>, config: &Config, parties: Vec<u16>) -> Result<Vec<Vec<u8>>, &'static str> {
+    let mut result : Vec<Vec<u8>> = Vec::new();
+    let mut j = 0;
+    for i in 0..parties.len() {
+        if parties[i] == config.index {
+            continue;
+        }
+        if data[j].is_empty() {
+            result.push(Vec::new());
+            j += 1;
+            continue;
+        }
+        let key = fs::read(&format!("{}/symm{}_{}", config.symm_keys_folder, config.index, parties[i]));
+        if key.is_err() || data[j].len() < 16 {
+            return Err("invalid encrypted data")
+        }
+        let cipher = Cipher::aes_256_cbc();
+        let request = decrypt(cipher, &key.unwrap(), Some(&data[j][0..16]), &data[j][16..]);
+        if request.is_err() {
+            return Err("decryption failed")
+        }
+        result.push(request.unwrap());
+        j += 1;
+    }
+    return Ok(result)
+}
+
 
 pub fn process_request(
     context: &Context,
@@ -205,11 +266,10 @@ pub fn process_request(
             let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
             let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
             // decrypt symmetric key shared with manager server
-            println!("data size: {}, rsa size: {}", request_data[0].len(), private_rsa.size());
             let r = private_rsa.private_decrypt(&request_data[0], &mut symm_key, Padding::PKCS1);
 
-            if r.is_err() || fs::write(format!("{}{}", config.symm_path, "_manager"), &symm_key[..32]).is_err() {
-                println!("decryption error: {}", r.is_err());
+            fs::create_dir_all(&config.symm_keys_folder);
+            if r.is_err() || fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &symm_key[..32]).is_err() {
                 return ABORT
             }
             // generate symmetric keys shared with other signers
@@ -221,12 +281,11 @@ pub fn process_request(
                     // generate random key
                     rand_bytes(&mut symm_key).unwrap();
                     // save it
-                    if fs::write(format!("{}_{}", config.symm_path, i), symm_key).is_err(){
+                    if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), symm_key).is_err(){
                         return ABORT
                     }
                     // load RSA public key for corresponding party
                     let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
-                    println!("{}", std::str::from_utf8(&pub_rsa).unwrap());
                     let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
                     // encrypt the symm key
                     let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
@@ -265,7 +324,7 @@ pub fn process_request(
                 let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
                 let r = private_rsa.private_decrypt(&request_data[i as usize], &mut symm_key, Padding::PKCS1);
 
-                if r.is_err() || fs::write(format!("{}_{}", config.symm_path, i), &symm_key[..32]).is_err() {
+                if r.is_err() || fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &symm_key[..32]).is_err() {
                     return (
                         Context::WaitingForKeys,
                         ResponseWithBytes {
@@ -311,10 +370,16 @@ pub fn process_request(
             gg18_key_gen_2(request_data, context),
 
         (Context::GenContext2(context), RequestType::GenerateKey) =>
-            gg18_key_gen_3(request_data, context),
+            encrypt_payload(gg18_key_gen_3(request_data, context), config,
+                                                                (0..config.num_parties).collect()),
 
-        (Context::GenContext3(context), RequestType::GenerateKey) =>
-            gg18_key_gen_4(request_data, context),
+        (Context::GenContext3(context), RequestType::GenerateKey) => {
+            let data = decrypt_payload(request_data, config, (0..config.num_parties).collect());
+            if data.is_err() {
+                return ABORT
+            }
+            gg18_key_gen_4(data.unwrap(), context)
+        }
 
         (Context::GenContext4(context), RequestType::GenerateKey) =>
             gg18_key_gen_5(request_data, context),
@@ -359,9 +424,16 @@ pub fn process_request(
             )
         }
 
-        (Context::SignContext1(context), RequestType::Sign) => gg18_sign2(request_data, context),
+        (Context::SignContext1(context), RequestType::Sign) =>
+            encrypt_payload(gg18_sign2(request_data, context), config, context.indices.clone()),
 
-        (Context::SignContext2(context), RequestType::Sign) => gg18_sign3(request_data, context),
+        (Context::SignContext2(context), RequestType::Sign) => {
+            let data = decrypt_payload(request_data, config, context.indices.clone());
+            if data.is_err() {
+                return ABORT
+            }
+            gg18_sign3(data.unwrap(), context)
+        }
 
         (Context::SignContext3(context), RequestType::Sign) => gg18_sign4(request_data, context),
 
@@ -393,18 +465,34 @@ pub fn process_request(
             if config.threshold != 2 || config.num_parties != 2 {
                 ABORT
             } else {
-                li17_key_gen1(config.index)
+                encrypt_payload(li17_key_gen1(config.index), config, [0, 1].to_vec())
             }
         }
 
         (Context::Gen2pContext1(context), RequestType::GenerateKey2p) =>
-            li17_key_gen2(request_data, context),
+        {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_key_gen2(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
         (Context::Gen2pContext2(context), RequestType::GenerateKey2p) =>
-            li17_key_gen3(request_data, context),
+        {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_key_gen3(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
         (Context::Gen2pContext3(context), RequestType::GenerateKey2p) => {
-            let c = li17_key_gen4(request_data, context);
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            let c = li17_key_gen4(data.unwrap(), context);
             if c.is_ok() {
                 let c = c.unwrap();
                 let serde = serde_json::to_string(&c);
@@ -441,15 +529,31 @@ pub fn process_request(
             hasher.update(request_data[0].clone());
             hasher.update(request_data[1].clone());
             let hash = hasher.finalize();
-            li17_sign1(context.unwrap(), hash.to_vec())
+            encrypt_payload(li17_sign1(context.unwrap(), hash.to_vec()), config, [0, 1].to_vec())
         }
 
-        (Context::Sign2pContext1(context), RequestType::Sign2p) => li17_sign2(request_data, context),
+        (Context::Sign2pContext1(context), RequestType::Sign2p) => {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_sign2(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
-        (Context::Sign2pContext2(context), RequestType::Sign2p) => li17_sign3(request_data, context),
+        (Context::Sign2pContext2(context), RequestType::Sign2p) => {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_sign3(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
         (Context::Sign2pContext3(context), RequestType::Sign2p) => {
-            let s = li17_sign4(request_data, context);
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            let s = li17_sign4(data.unwrap(), context);
             if s.is_err() {
                 return ABORT
             }
@@ -473,15 +577,31 @@ pub fn process_request(
                 eprintln!("Failed to parse setup file.");
                 return ABORT
             }
-            li17_refresh1(context.unwrap())
+            encrypt_payload(li17_refresh1(context.unwrap()), config, [0, 1].to_vec())
         }
 
-        (Context::Refresh2pContext1(context), RequestType::Refresh2p) => li17_refresh2(request_data, context),
+        (Context::Refresh2pContext1(context), RequestType::Refresh2p) => {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_refresh2(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
-        (Context::Refresh2pContext2(context), RequestType::Refresh2p) => li17_refresh3(request_data, context),
+        (Context::Refresh2pContext2(context), RequestType::Refresh2p) => {
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            encrypt_payload(li17_refresh3(data.unwrap(), context), config, [0, 1].to_vec())
+        }
 
         (Context::Refresh2pContext3(context), RequestType::Refresh2p) => {
-            let c = li17_refresh4(request_data, context);
+            let data = decrypt_payload(request_data, config, [0, 1].to_vec());
+            if data.is_err() {
+                return ABORT
+            }
+            let c = li17_refresh4(data.unwrap(), context);
             if c.is_err() {
                 return ABORT
             }
