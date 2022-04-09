@@ -11,7 +11,7 @@ use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, 
                       Context, Request, Config, ResponseType, ResponseWithBytes, Response};
 use std::env;
 
-const BUFFER_SIZE_PER_PARTY: usize = 10_000;
+const BUFFER_SIZE_PER_PARTY: usize = 20_000;
 
 fn main() {
     // Check and parse command line arguments

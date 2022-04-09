@@ -1,12 +1,8 @@
 import asyncio
 import json
 import secrets
-
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
-
-
-BUFFER_SIZE = 100000
 
 
 class SignerInstance:

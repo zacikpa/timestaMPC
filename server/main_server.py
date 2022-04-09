@@ -3,29 +3,28 @@
 import asyncio
 import json
 import sys
+import ca
 import glob
-import secrets
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from datetime import datetime
 from typing import Dict, List
 from signer_instance import SignerInstance
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.ciphers.algorithms import AES
+from cryptography.hazmat.primitives.asymmetric import ec, padding
 
 REQUEST_QUEUE = asyncio.Queue()
 RESPONSE_QUEUE = asyncio.Queue()
 CLIENT_BUFFER_SIZE = 2000
-BUFFER_SIZE_PER_PARTY = 10000
+BUFFER_SIZE_PER_PARTY = 20000
 
 
 class SignerManager:
     def __init__(self, config) -> None:
         self.num_parties: int = config.get("num_parties")
         self.threshold: int = config.get("threshold")
-        refresh: bool = config.get("refresh")
-        if refresh and (self.num_parties != 2):
+        self.refresh: bool = config.get("refresh")
+        if self.refresh and (self.num_parties != 2):
             raise RuntimeError("For refresh to work there must be exactly 2 parties (2-of-2).")
 
         self.do_2p = (self.num_parties == 2 and self.refresh)
@@ -70,7 +69,7 @@ class SignerManager:
 
         send_messages = SignerManager._build_distributed_data_p3(recv_messages)
         await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
-        
+
         # empty messages
         for signer in self.signer_instances:
             await signer.recv(BUFFER_SIZE_PER_PARTY)
@@ -131,7 +130,7 @@ class SignerManager:
         await self._init_keygen(phase_enum)
         print(self.signer_instances, self.active_signers)
 
-        for phase in range(5 if not self.do_2p else 2):
+        for phase in range(5 if not self.do_2p else 3):
             recv_messages = [None for _ in self.signers]
             if phase == 2 and not self.do_2p:
                 await self._recv_to_array(recv_messages, phase_enum, self.signer_instances,  True)
@@ -170,7 +169,6 @@ class SignerManager:
                 print(active_signers, current_missing)
 
         self.active_signers = active_signers
-
 
     async def refresh_2p(self):
         phase_enum = "Refresh2p"
@@ -220,20 +218,20 @@ class SignerManager:
             await signer.recv(self.buffer_size)
 
     async def mp_sign(self):
-        active_signer_instances = [self.signer_instances[i] for i in self.active_signers]
+        active_signer_instances = [self.signer_instances[i] for i in sorted(self.active_signers)]
 
-        for phase in range(9 if not self.do_2p else 2):
+        for phase in range(9 if not self.do_2p else 3):
             recv_messages = [None for _ in range(self.threshold)]
             if phase == 1 and not self.do_2p:
                 await self._recv_to_array(recv_messages, "Sign", active_signer_instances,  True)
                 send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             else:
-                await self._recv_to_array(recv_messages, "Sign", active_signer_instances)
+                await self._recv_to_array(recv_messages, "Sign" if not self.do_2p else "Sign2p", active_signer_instances)
                 send_messages = self._build_distributed_data(recv_messages, active_signer_instances)
-            await SignerManager._distribute_data(send_messages, "Sign", active_signer_instances)
+            await SignerManager._distribute_data(send_messages, "Sign" if not self.do_2p else "Sign2p", active_signer_instances)
 
         signatures = [None for _ in range(self.threshold)]
-        await self._recv_to_array(signatures, "Sign", active_signer_instances)
+        await self._recv_to_array(signatures, "Sign" if not self.do_2p else "Sign2p", active_signer_instances)
         print("Signing done")
         return signatures
 
@@ -274,10 +272,6 @@ async def handle_client(reader, writer):
             "reason": "invalid request"
         }
         response_data = json.dumps(response)
-
-    # TODO I think the channel back (with the real timestamp) would have to be encrypted,
-    # because someone can mangle with the timestamp
-    # TODO figure out how secure channels work
     writer.write(response_data.encode("utf-8"))
     await writer.drain()
     writer.close()
@@ -299,7 +293,9 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
-
+    print("Key point", b64decode(contexts[0].encode()).hex())
+    public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256K1(), b64decode(contexts[0].encode()))
+    manager.certificate = ca.issue_cert("TimestaMPC", public_key)
     print(contexts)
     print("signers inited")
     while True:
@@ -330,7 +326,8 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
         print("Signing complete, signatures:", signatures)
         response = {
             "status": "success",
-            "signature": signatures[0]
+            "signature": signatures[0],
+            "certificate": manager.certificate.public_bytes(serialization.Encoding.PEM).decode()
         }
         await RESPONSE_QUEUE.put(response)
 

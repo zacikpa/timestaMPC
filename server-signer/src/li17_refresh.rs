@@ -95,7 +95,7 @@ pub fn li17_refresh1( context: Li17SignContext ) -> (Context, ResponseWithBytes)
             p1_r1: None,
         };
         (Context::Refresh2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     }
 }
 
@@ -116,7 +116,7 @@ pub fn li17_refresh2( msg: Vec<Vec<u8>>,context: &Li17RefreshContext1 ) -> (Cont
             p2_msg1_from_p1: None,
         };
         (Context::Refresh2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
 
     } else {
         if msg.is_empty() {
@@ -206,9 +206,8 @@ pub fn li17_refresh3( msg: Vec<Vec<u8>>,context: &Li17RefreshContext2 ) -> (Cont
             p2_coin_flip_first_message: context.p2_coin_flip_first_message.clone(),
             p2_msg1_from_p1: context.p2_msg1_from_p1.clone(),
         };
-
         (Context::Refresh2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::Refresh2p,
-                                                                  data: Vec::new()})
+                                            data: vec!(Vec::new())})
 
     }
 }

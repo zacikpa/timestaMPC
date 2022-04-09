@@ -456,7 +456,7 @@ pub fn process_request(
             (
                 Context::Empty,
                 ResponseWithBytes {
-                    response_type: ResponseType::Sign,
+                    response_type: ResponseType::Sign2p,
                     data: vec![s.unwrap()],
                 },
             )
@@ -488,8 +488,8 @@ pub fn process_request(
             (
                 Context::Refresh2pContext4(c.unwrap()),
                 ResponseWithBytes {
-                    response_type: ResponseType::GenerateKey2p,
-                    data: Vec::new(),
+                    response_type: ResponseType::Refresh2p,
+                    data: vec![Vec::new()],
                 },
             )
         }
@@ -502,7 +502,7 @@ pub fn process_request(
                         Context::Empty,
                         ResponseWithBytes {
                             response_type: ResponseType::Refresh2p,
-                            data: Vec::new(),
+                            data: vec![Vec::new()],
                         },
                     )
                 }

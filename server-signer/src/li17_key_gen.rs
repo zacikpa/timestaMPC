@@ -74,14 +74,13 @@ pub fn li17_key_gen1( index: u16 ) -> (Context, ResponseWithBytes) {
         (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
                                             data: vec!(m.unwrap())})
     } else {
-
         let context1 = Li17KeyGenContext1 {
             index: 1,
             p1_ec_key_pair: None,
             p1_comm_witness: None,
         };
         (Context::Gen2pContext1(context1), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     }
 }
 
@@ -96,7 +95,7 @@ pub fn li17_key_gen2( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext1 ) -> (Cont
             p2_ec_key_pair: None,
         };
         (Context::Gen2pContext2(context2), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     } else {
         if msg.is_empty() {
             return ABORT
@@ -198,7 +197,7 @@ pub fn li17_key_gen3( msg: Vec<Vec<u8>>, context: &Li17KeyGenContext2 ) -> (Cont
 
         };
         (Context::Gen2pContext3(context3), ResponseWithBytes{ response_type: ResponseType::GenerateKey2p,
-                                            data: Vec::new()})
+                                            data: vec!(Vec::new())})
     }
 }
 

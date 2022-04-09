@@ -58,20 +58,24 @@ a configuration file, e.g., `server.cfg`:
   ]
 }
 ```
-After the manager is run, it immediately establishes a connection with the
+After the manager is executed, it immediately establishes a connection with the
 signers in order to generate a distributed ECDSA private key.
 ```bash
 cd server
 ./main_server.py server.cfg
 ```
-At this point, the manager is ready to accept timestamping requests. To create
-a timestamping request for `document.txt`, use the client application:
+At this point, the manager is ready to accept timestamping requests. To have
+a document signed, use the client application:
 ```bash
 cd client
-./client.py document.txt
+./client.py sign document.txt
 ```
-As a response, the client receives a JSON dictionary containing the timestamp
-and the signature.
+As a response, the client receives a JSON dictionary containing the timestamp,
+server certificate, and the signature itself. The result can be immediately
+validated by running the `client verify` command:
+```bash
+./client.py sign document.txt | ./client.py verify document.txt
+```
 
 ## Authors
 The project is developed by Stanislav Boboň, Jiří Gavenda, and Pavol Žáčik.
