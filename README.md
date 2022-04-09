@@ -28,13 +28,16 @@ If we are going to do _2 out of 3_ threshold signing, the configuration
 file `signer0.cfg` for one of the signers may look as follows:
 ```json
 {
-  "index": 0,
-  "context_path": "signer0",
-  "host": "127.0.0.1",
-  "port": 30000,
-  "num_parties": 3,
-  "threshold": 2,
-  "acceptable_seconds": 60
+"index": 0,
+"context_path": "signer0",
+"private_rsa": "signer-key-0",
+"pub_keys_paths": ["signer-key-0.pub", "signer-key-1.pub", "signer-key-2.pub"],
+"symm_keys_folder": "symm_keys",
+"host": "127.0.0.1",
+"port": 30000,
+"num_parties": 3,
+"threshold": 2,
+"acceptable_seconds": 60
 }
 ```
 The signer can then be run:

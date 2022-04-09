@@ -20,7 +20,7 @@ use crate::requests::{ResponseWithBytes, Context, ResponseType, ABORT};
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext1 {
-    indices: Vec<u16>,
+    pub indices: Vec<u16>,
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
@@ -38,7 +38,7 @@ pub type GG18SignMsg1 = (SignBroadcastPhase1, MessageA);
 
 #[derive(Clone, Debug)]
 pub struct GG18SignContext2 {
-    indices: Vec<u16>,
+    pub indices: Vec<u16>,
     threshold_index: usize,
     message_hash: Vec<u8>,
     threshold: u16,
