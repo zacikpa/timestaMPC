@@ -59,13 +59,15 @@ class SignerInstance:
         try:
             data = (await self.reader.read(size))
         except (ConnectionResetError, BrokenPipeError):
-            data = ""
+            data = b""
         if len(data) == 0:
             self.connected = False
 
         if not skip_decrypt:
-            data = self.decrypt(data)
-
+            try:
+                data = self.decrypt(data)
+            except ValueError:
+                data = b""
         return data.decode()
 
     def is_connected(self):
