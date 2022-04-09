@@ -35,7 +35,7 @@ def generate_keys(num_parties):
     os.makedirs('keys/', exist_ok=True)
     for party in range(num_parties):
         generate_private_key(f'keys/signer-key-{party}', 4096)
-    generate_private_key(f'manager-key', 4096)
+    generate_private_key(f'keys/manager-key', 4096)
         
         
 

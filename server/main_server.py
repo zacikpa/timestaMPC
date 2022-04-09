@@ -35,11 +35,10 @@ class SignerManager:
         self.buffer_size = self.num_parties * BUFFER_SIZE_PER_PARTY
         self.signer_public_keys = []
         self.symmetric_key = secrets.token_bytes(32)
-        self.iv = secrets.token_bytes(16)
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
-            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port"), self.symmetric_key, self.iv))
+            self.signer_instances.append(SignerInstance(signer.get("index"), signer.get("host"), signer.get("port"), self.symmetric_key))
         for instance in self.signer_instances:
             if not (await instance.connect()):
                 return False
@@ -68,9 +67,15 @@ class SignerManager:
 
         recv_messages = [None for _ in self.signers]
 
-        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances,  True)
+        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, True)
+
         send_messages = SignerManager._build_distributed_data_p3(recv_messages)
         await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
+        
+        # empty messages
+        for signer in self.signer_instances:
+            await signer.recv(BUFFER_SIZE_PER_PARTY)
+
 
 
     @staticmethod

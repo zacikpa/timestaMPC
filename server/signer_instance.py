@@ -10,19 +10,16 @@ BUFFER_SIZE = 100000
 
 
 class SignerInstance:
-    def __init__(self, index, host, port, symmetric_key, iv) -> None:
+    def __init__(self, index, host, port, symmetric_key) -> None:
         self.host = host
         self.port = port
         self.reader, self.writer = None, None
         self.index = index
         self.connected = False
         self.symmetric_key = symmetric_key
-        cipher = Cipher(algorithms.AES(symmetric_key), modes.CBC(iv))
-        self.encryptor = cipher.encryptor()
-        self.decryptor = cipher.decryptor()
 
     def encrypt(self, data):
-        padder = padding.PKCS7(256).padder()
+        padder = padding.PKCS7(128).padder()
         padded_data = padder.update(data)
         padded_data += padder.finalize()
 
