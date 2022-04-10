@@ -9,7 +9,7 @@ use std::io::{Write, Read, BufReader};
 use std::fs::File;
 use std::fs;
 use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, decrypt_request,
-                      Context, Request, Config, ResponseWithBytes, ABORT};
+                      Context, Request, Config, ResponseWithBytes, ResponseType, ABORT};
 use std::env;
 
 const BUFFER_SIZE_PER_PARTY: usize = 20_000;
@@ -89,7 +89,8 @@ fn main() {
 
                     // Probably encrypted, try to load the symmetric key and decrypt
                     let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
-                    if !symm.is_err() {
+                    println!("{:?}", size);
+                    if !symm.is_err() && size % 16 == 0 && size >= 32 {
                         let decrypted = decrypt_request(&symm.unwrap(), &request_buffer[..size]);
                         if !decrypted.is_err() {
                             request = serde_json::from_slice::<Request>(&(decrypted.unwrap())).unwrap();
@@ -129,7 +130,7 @@ fn main() {
                 // Process the request and create a response
                 println!("Got request: {:?}", request);
                 (context, response) = process_request(&context, &config, request);
-                let response_b64 = response_bytes_to_b64(response);
+                let response_b64 = response_bytes_to_b64(&response);
                 println!("Sending response: {:?}", &response_b64);
 
                 // Write back the response
@@ -143,7 +144,7 @@ fn main() {
 
                 let to_send: Vec<u8>;
                 let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
-                if symm.is_err() {
+                if symm.is_err() || response.response_type == ResponseType::SymmetricKeySendPlain {
                     to_send = json_response;
                 } else {
                     to_send = encrypt_response(&symm.unwrap(), json_response);

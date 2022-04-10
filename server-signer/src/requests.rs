@@ -46,8 +46,9 @@ pub struct Config {
     pub acceptable_seconds: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy)]
 enum RequestType {
+    SymmetricKeySendPlain,
     SymmetricKeySend,
     GenerateKey,
     InitSign,
@@ -64,8 +65,9 @@ pub struct Request {
     data: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy)]
 pub enum ResponseType {
+    SymmetricKeySendPlain,
     SymmetricKeySend,
     GenerateKey,
     InitSign,
@@ -142,7 +144,7 @@ fn check_time(config: &Config, time_data: Vec<u8>) -> bool {
     return time < Utc::now() + time_error && time > Utc::now() - time_error;
 }
 
-pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
+pub fn response_bytes_to_b64(response_bytes: &ResponseWithBytes) -> Response {
     return Response {
         response_type: response_bytes.response_type,
         data: response_bytes.data
@@ -244,7 +246,7 @@ pub fn process_request(
     }
     let request_data = request_data.unwrap();
     match (context, request.request_type) {
-        (Context::Empty, RequestType::SymmetricKeySend) => {
+        (Context::Empty, RequestType::SymmetricKeySendPlain) => {
             if request_data.is_empty() {
                 return ABORT
             }
@@ -284,12 +286,12 @@ pub fn process_request(
             (
                 Context::Keys1(symm_key.to_vec()),
                 ResponseWithBytes {
-                    response_type: ResponseType::SymmetricKeySend,
+                    response_type: ResponseType::SymmetricKeySendPlain,
                     data: vec!(encrypted),
                 },
             )
         }
-        (Context::Keys1(manager_symm), RequestType::SymmetricKeySend) => {
+        (Context::Keys1(manager_symm), RequestType::SymmetricKeySendPlain) => {
             let _ = fs::create_dir_all(&config.symm_keys_folder);
             if fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &manager_symm).is_err() {
                 return ABORT

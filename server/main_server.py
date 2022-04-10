@@ -75,7 +75,7 @@ class SignerManager:
                 random_challenges[index],
                 padding.PKCS1v15()
             )
-            payload = build_payload("SymmetricKeySend", [b64encode(encrypted_data).decode()])
+            payload = build_payload("SymmetricKeySendPlain", [b64encode(encrypted_data).decode()])
             await signer.send(payload, skip_encrypt=True)
             recv_messages[index] = json.loads(await signer.recv(BUFFER_SIZE_PER_PARTY, skip_decrypt=True))
 
@@ -90,7 +90,7 @@ class SignerManager:
             self.signer_instances[index].symmetric_key = sym_key
 
         for signer in self.signer_instances:
-            await signer.send(build_payload("SymmetricKeySend", []), True)
+            await signer.send(build_payload("SymmetricKeySendPlain", []), True)
 
         for _ in range(2):
             await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, multiple=True)
@@ -369,7 +369,7 @@ async def signer_manager(manager: SignerManager):
 
             if manager.do_2p:
                 await manager.refresh_2p()
-                
+
         except Exception as err:
             print(str(err))
             response = {
