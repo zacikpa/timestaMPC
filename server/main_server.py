@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import secrets
 import sys
 import ca
 import glob
@@ -52,23 +53,48 @@ class SignerManager:
                     serialization.load_pem_public_key(key_file.read())
                     )
 
+    """
+    1) Manager pošle signerům zašifrovaná náhodná data (asi to může být vygenerované stejným způsobem jako symetrický klíč)
+    Signeři dešifrují, vygenerují symetrický klíč a pošlou zašifrovaný symetrický klíč || přijatá náhodná data
+    2) Manager dešifruje, porovná náhodná data a uloží si symetrický klíč. Pošle prázdnou zprávu zašifrovanou tím klíčem. (od teď už jsou zašifrované všechny zprávy)
+    Signeři pošlou zpátky asymetricky zašifrovaná nová náhodná data pro signery s vyšším indexem.
+    3) Manager přepošle data
+    Signeři dešifrují náhodná data a pošlou odpovídajícím signerům zašifrovaný symetrický klíč || data
+    4) Manager přepošle
+    Signeři přijmou, dešifrují, zkontrolují náhodná data, uloží si klíče, pošlou prázdnou odpověď. 
+    """
     async def distribute_symmetric_key(self):
-
+        random_challenges = [secrets.token_bytes(32) for _ in self.signer_instances]
         for index, signer in enumerate(self.signer_instances):
             public_key = self.signer_public_keys[index]
-            encrypted_key = public_key.encrypt(
-                signer.symmetric_key,
+            encrypted_data = public_key.encrypt(
+                random_challenges[index],
                 padding.PKCS1v15()
             )
-            payload = build_payload("SymmetricKeySend", [b64encode(encrypted_key).decode()])
+            payload = build_payload("SymmetricKeySend", [b64encode(encrypted_data).decode()])
+            print(payload)
             await signer.send(payload, skip_encrypt=True)
 
         recv_messages = [None for _ in self.signers]
 
-        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, True)
+        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, multiple=True, skip_decrypt=True)
+        
+        for index, response in enumerate(recv_messages):
+            sym_key, resp = response[:32], response[32:]
+            if resp != random_challenges[index]:
+                # TODO abort or sth
+                print("BAD BAD BAD CHALLENGE")
+                return
+            self.signer_instances[index].symmetric_key = sym_key
+            
+        for signer in self.signer_instances:
+            await signer.send(build_payload("SymmetricKeySend", []))
 
-        send_messages = SignerManager._build_distributed_data_p3(recv_messages)
-        await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
+        for _ in range(2):
+            await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances)
+
+            send_messages = SignerManager._build_distributed_data_p3(recv_messages)
+            await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
 
         # empty messages
         for signer in self.signer_instances:
@@ -85,9 +111,9 @@ class SignerManager:
         for signer in self.signer_instances:
             await signer.send(build_payload(message, []))
 
-    async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False) -> None:
+    async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False, skip_decrypt: bool = False) -> None:
         for index, signer in enumerate(instances):
-            recv = await signer.recv(self.buffer_size)
+            recv = await signer.recv(self.buffer_size, skip_decrypt=skip_decrypt)
             print(recv)
             recv_dct = json.loads(recv)
             if (recv_type := recv_dct.get("response_type")) != expected_phase:
