@@ -29,6 +29,7 @@ use base64;
 use openssl::rsa::{Rsa, Padding};
 use openssl::rand::rand_bytes;
 use openssl::symm::{encrypt, Cipher, decrypt};
+use openssl::error::ErrorStack;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -151,16 +152,7 @@ pub fn response_bytes_to_b64(response_bytes: ResponseWithBytes) -> Response {
     }
 }
 
-pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
-    // load key
-    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
-    if symm.is_err(){
-        // symmetric key probably not yet established
-        return response
-    }
-    let symm = symm.unwrap();
-    //encrypt
-    println!("encrypting response");
+pub fn encrypt_response(symm: &[u8], response: Vec<u8>) -> Vec<u8> {
     let cipher = Cipher::aes_256_cbc();
     let mut iv : [u8; 16] = [0; 16];
     rand_bytes(&mut iv).unwrap();
@@ -168,25 +160,11 @@ pub fn encrypt_response( response: Vec<u8>, config: &Config ) -> Vec<u8> {
     let mut result_vec = iv.to_vec();
     result_vec.append(&mut encrypted_response);
     result_vec
-
 }
 
-pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
-    // load key
-    println!("decrypting request");
-    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
-    if symm.is_err() || enc_request.len() < 16 {
-        // this is probably first message with keys not yet established, try to parse original data
-        // or it is too short to be decrypted
-        return enc_request.to_vec();
-    }
-
+pub fn decrypt_request(symm: &[u8], enc_request: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     let cipher = Cipher::aes_256_cbc();
-    let request = decrypt(cipher, &symm.unwrap(), Some(&enc_request[0..16]), &enc_request[16..]);
-    if request.is_err() {
-        return enc_request.to_vec();
-    }
-    request.unwrap()
+    return decrypt(cipher, &symm, Some(&enc_request[0..16]), &enc_request[16..]);
 }
 
 pub fn encrypt_payload( response: (Context, ResponseWithBytes), config: &Config, parties: Vec<u16>) -> (Context, ResponseWithBytes) {

@@ -4,14 +4,24 @@ mod li17_key_gen;
 mod li17_sign;
 mod li17_refresh;
 mod requests;
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::io::{Write, Read, BufReader};
 use std::fs::File;
+use std::fs;
 use crate::requests::{process_request, response_bytes_to_b64, encrypt_response, decrypt_request,
-                      Context, Request, Config, ResponseType, ResponseWithBytes, Response};
+                      Context, Request, Config, ResponseWithBytes, ABORT};
 use std::env;
 
 const BUFFER_SIZE_PER_PARTY: usize = 20_000;
+const MAX_SOCKET_READ_SIZE: usize = 32_768;
+
+fn read(socket: &mut TcpStream, buffer: &mut [u8]) -> usize {
+    let size_result = socket.read(buffer);
+    if size_result.is_err() {
+        0 as usize;
+    }
+    size_result.unwrap()
+}
 
 fn main() {
     // Check and parse command line arguments
@@ -65,35 +75,48 @@ fn main() {
             }
         };
             'outer: loop {
-                // Read an incoming request
-                let mut size = 0;
                 let mut request_buffer = vec![0; BUFFER_SIZE_PER_PARTY * config.num_parties as usize];
+                let mut size = read(&mut socket, &mut request_buffer);
                 let request: Request;
 
                 'inner: loop {
-                    let decrypt_result = decrypt_request(&request_buffer[..size], &config);
-
-                    let request_result = serde_json::from_slice::<Request>(&decrypt_result);
+                    // Try to parse the request as JSON
+                    let request_result = serde_json::from_slice::<Request>(&request_buffer[..size]);
                     if !request_result.is_err() {
                         request = request_result.unwrap();
                         break 'inner;
                     }
-                    let new_size_result = socket.read(&mut request_buffer[size..]);
-                    let new_size: usize;
-                    if !new_size_result.is_err() {
-                        new_size = new_size_result.unwrap()
-                    } else {
-                        new_size = 0;
+
+                    // Probably encrypted, try to load the symmetric key and decrypt
+                    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
+                    if !symm.is_err() {
+                        let decrypted = decrypt_request(&symm.unwrap(), &request_buffer[..size]);
+                        if !decrypted.is_err() {
+                            request = serde_json::from_slice::<Request>(&(decrypted.unwrap())).unwrap();
+                            break 'inner;
+                        }
                     }
+
+                    // Abort if we finished reading and could not parse
+                    if size % MAX_SOCKET_READ_SIZE != 0 {
+                        eprintln!("Error reading from socket.");
+                        (context, response) = ABORT;
+                        let json_response = serde_json::to_vec(&response).unwrap();
+                        let write_result = socket.write_all(&json_response);
+                        if write_result.is_err() {
+                            eprintln!("Error: {}", write_result.unwrap_err().to_string());
+                            break 'outer;
+                        }
+                        continue 'outer;
+                    }
+
+                    // Try to read again
+                    let new_size = read(&mut socket, &mut request_buffer[size..]);
                     if new_size == 0 {
                         eprintln!("Error reading from socket.");
-                        let response_abort = Response {
-                            response_type: ResponseType::Abort,
-                            data: Vec::new()
-                        };
-                        let json_abort = serde_json::to_vec(&response_abort).unwrap();
-                        context = Context::Empty;
-                        let write_result = socket.write_all(&json_abort);
+                        (context, response) = ABORT;
+                        let json_response = serde_json::to_vec(&response).unwrap();
+                        let write_result = socket.write_all(&json_response);
                         if write_result.is_err() {
                             eprintln!("Error: {}", write_result.unwrap_err().to_string());
                             break 'outer;
@@ -117,7 +140,16 @@ fn main() {
                         continue;
                     }
                 };
-                let write_result = socket.write_all(&encrypt_response(json_response, &config));
+
+                let to_send: Vec<u8>;
+                let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
+                if symm.is_err() {
+                    to_send = json_response;
+                } else {
+                    to_send = encrypt_response(&symm.unwrap(), json_response);
+                }
+
+                let write_result = socket.write_all(&to_send);
                 if write_result.is_err() {
                     eprintln!("Error: {}", write_result.unwrap_err().to_string());
                     break;
