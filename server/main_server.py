@@ -25,6 +25,7 @@ class SignerManager:
         self.num_parties: int = config.get("num_parties")
         self.threshold: int = config.get("threshold")
         self.refresh: bool = config.get("refresh")
+        self.manager_key_path: str = config.get("manager_key")
         if self.refresh and (self.num_parties != 2):
             raise RuntimeError("For refresh to work there must be exactly 2 parties (2-of-2).")
 
@@ -34,6 +35,7 @@ class SignerManager:
         self.active_signers = []
         self.buffer_size = self.num_parties * BUFFER_SIZE_PER_PARTY
         self.signer_public_keys = []
+        self.manager_key = None
 
     async def spawn_instances(self) -> bool:
         for signer in self.signers:
@@ -44,14 +46,15 @@ class SignerManager:
         return True
 
 
-    def load_keyfiles(self, dirname: str):
-        keyfiles = glob.glob(f'{dirname}/*.pub')
-        keyfiles.sort()
-        for filename in keyfiles:
-            with open(filename, "rb") as key_file:
+    def load_keyfiles(self):
+        for signer in self.signers:
+            with open(signer["key"], "rb") as key_file:
                 self.signer_public_keys.append(
                     serialization.load_pem_public_key(key_file.read())
                     )
+        with open(self.manager_key_path, 'rb') as f:
+            self.manager_key = serialization.load_pem_private_key(f.read(), None)
+                    
 
     """
     1) Manager pošle signerům zašifrovaná náhodná data (asi to může být vygenerované stejným způsobem jako symetrický klíč)
@@ -64,6 +67,7 @@ class SignerManager:
     Signeři přijmou, dešifrují, zkontrolují náhodná data, uloží si klíče, pošlou prázdnou odpověď. 
     """
     async def distribute_symmetric_key(self):
+        recv_messages = [None for _ in self.signers]
         random_challenges = [secrets.token_bytes(32) for _ in self.signer_instances]
         for index, signer in enumerate(self.signer_instances):
             public_key = self.signer_public_keys[index]
@@ -74,12 +78,15 @@ class SignerManager:
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_data).decode()])
             print(payload)
             await signer.send(payload, skip_encrypt=True)
-
-        recv_messages = [None for _ in self.signers]
-
-        await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, multiple=True, skip_decrypt=True)
+            recv_messages[index] = json.loads(await signer.recv(BUFFER_SIZE_PER_PARTY, skip_decrypt=True))
         
         for index, response in enumerate(recv_messages):
+            print("RESPONSE: ---------------------")
+            response = b64decode(response["data"][0])
+            print(response, "length", len(response))
+            response = self.manager_key.decrypt(response, padding.PKCS1v15())
+            print("RESPONSE 2 --------------------")
+            print(response)
             sym_key, resp = response[:32], response[32:]
             if resp != random_challenges[index]:
                 # TODO abort or sth
@@ -87,18 +94,22 @@ class SignerManager:
                 return
             self.signer_instances[index].symmetric_key = sym_key
             
+        print("recv done")
         for signer in self.signer_instances:
             await signer.send(build_payload("SymmetricKeySend", []))
 
+        print("first round done")
         for _ in range(2):
             await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances)
 
             send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
 
+        print("second round done")
         # empty messages
         for signer in self.signer_instances:
             await signer.recv(BUFFER_SIZE_PER_PARTY)
+        print("empty messages")
 
 
 
@@ -307,8 +318,8 @@ def to_byte_array(data):
     return [x for x in bytes(data, 'utf-8')]
 
 
-async def signer_manager(manager: SignerManager, pubkey_directory: str):
-    manager.load_keyfiles(pubkey_directory)
+async def signer_manager(manager: SignerManager):
+    manager.load_keyfiles()
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
 
@@ -362,19 +373,18 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage:", sys.argv[0], "CONFIG_FILE PUBLIC_KEY_DIRECTORY")
+    if len(sys.argv) != 2:
+        print("Usage:", sys.argv[0], "CONFIG_FILE")
         return
 
     config_filename = sys.argv[1]
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
-    pubkey_directory = sys.argv[2]
     manager = SignerManager(config)
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(asyncio.start_server(handle_client, config.get("host"), config.get("port")))
-    loop.run_until_complete(signer_manager(manager, pubkey_directory))
+    loop.run_until_complete(signer_manager(manager))
 
     try:
         print("Running... Press ^C to shutdown")
