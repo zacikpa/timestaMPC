@@ -314,6 +314,7 @@ pub fn process_request(
                 return ABORT
             }
 
+            let mut messages: Vec<Vec<u8>> = Vec::new();
             let mut challenges: Vec<Vec<u8>> = Vec::new();
             for i in 0..config.num_parties {
                 // generate challenges for parties with higher index
@@ -323,6 +324,7 @@ pub fn process_request(
                     if rand_bytes(&mut challenge).is_err(){
                         return ABORT
                     }
+                    challenges.push(challenge.to_vec());
 
                     // load RSA public key for corresponding party
                     let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
@@ -333,10 +335,11 @@ pub fn process_request(
                         return ABORT
                     }
                     // append it
-                    challenges.push(encrypted.to_vec());
+                    messages.push(encrypted.to_vec());
                 }
                 // parties with lower index will send challenges to you
                 if i < config.index {
+                    messages.push(Vec::new());
                     challenges.push(Vec::new());
                 }
             }
@@ -345,7 +348,7 @@ pub fn process_request(
                 Context::Keys2(challenges.clone()),
                 ResponseWithBytes {
                     response_type: ResponseType::SymmetricKeySend,
-                    data: challenges,
+                    data: messages,
                 },
             )
         }
@@ -405,7 +408,8 @@ pub fn process_request(
             )
         }
         (Context::Keys3(challenges), RequestType::SymmetricKeySend) => {
-            if request_data.len() < config.num_parties as usize {
+
+            if request_data.len() < (config.num_parties as usize - 1) {
                 return ABORT
             }
 
@@ -414,17 +418,18 @@ pub fn process_request(
 
             for i in (config.index + 1)..config.num_parties {
                 let mut data: Vec<u8> = vec![0; private_rsa.size() as usize];
-                let r = private_rsa.private_decrypt(&request_data[i as usize], &mut data, Padding::PKCS1);
-
+                let r = private_rsa.private_decrypt(&request_data[(i - 1) as usize], &mut data, Padding::PKCS1);
                 if r.is_err() {
+                    println!("ABORT decrypt failed");
                     return ABORT
                 }
-
-                if challenges[i as usize] != data[32..r.unwrap()].to_vec() {
+                if challenges[(i - 1) as usize] != data[32..r.unwrap()].to_vec() {
+                    println!("ABORT bad challenge");
                     return ABORT
                 }
                 // save key
                 if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &data[0..32]).is_err(){
+                    println!("ABORT write");
                     return ABORT
                 }
             }

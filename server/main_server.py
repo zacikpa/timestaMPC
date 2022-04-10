@@ -54,7 +54,7 @@ class SignerManager:
                     )
         with open(self.manager_key_path, 'rb') as f:
             self.manager_key = serialization.load_pem_private_key(f.read(), None)
-                    
+
 
     """
     1) Manager pošle signerům zašifrovaná náhodná data (asi to může být vygenerované stejným způsobem jako symetrický klíč)
@@ -64,7 +64,7 @@ class SignerManager:
     3) Manager přepošle data
     Signeři dešifrují náhodná data a pošlou odpovídajícím signerům zašifrovaný symetrický klíč || data
     4) Manager přepošle
-    Signeři přijmou, dešifrují, zkontrolují náhodná data, uloží si klíče, pošlou prázdnou odpověď. 
+    Signeři přijmou, dešifrují, zkontrolují náhodná data, uloží si klíče, pošlou prázdnou odpověď.
     """
     async def distribute_symmetric_key(self):
         recv_messages = [None for _ in self.signers]
@@ -76,40 +76,31 @@ class SignerManager:
                 padding.PKCS1v15()
             )
             payload = build_payload("SymmetricKeySend", [b64encode(encrypted_data).decode()])
-            print(payload)
             await signer.send(payload, skip_encrypt=True)
             recv_messages[index] = json.loads(await signer.recv(BUFFER_SIZE_PER_PARTY, skip_decrypt=True))
-        
+
         for index, response in enumerate(recv_messages):
-            print("RESPONSE: ---------------------")
             response = b64decode(response["data"][0])
-            print(response, "length", len(response))
             response = self.manager_key.decrypt(response, padding.PKCS1v15())
-            print("RESPONSE 2 --------------------")
-            print(response)
             sym_key, resp = response[:32], response[32:]
             if resp != random_challenges[index]:
                 # TODO abort or sth
                 print("BAD BAD BAD CHALLENGE")
                 return
             self.signer_instances[index].symmetric_key = sym_key
-            
-        print("recv done")
-        for signer in self.signer_instances:
-            await signer.send(build_payload("SymmetricKeySend", []))
 
-        print("first round done")
+        for signer in self.signer_instances:
+            await signer.send(build_payload("SymmetricKeySend", []), True)
+
         for _ in range(2):
-            await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances)
+            await self._recv_to_array(recv_messages, "SymmetricKeySend", self.signer_instances, multiple=True)
 
             send_messages = SignerManager._build_distributed_data_p3(recv_messages)
             await SignerManager._distribute_data(send_messages, "SymmetricKeySend", self.signer_instances)
 
-        print("second round done")
         # empty messages
         for signer in self.signer_instances:
             await signer.recv(BUFFER_SIZE_PER_PARTY)
-        print("empty messages")
 
 
 
