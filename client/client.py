@@ -199,6 +199,12 @@ def main():
         except json.JSONDecodeError:
             print("the response does not contain valid JSON data")
             return
+        if "status" not in response:
+            print("the response does not contain a status field")
+            return
+        if response["status"] == "failure":
+            print("failure:", response["reason"])
+            return
         verify_signature(args.document_file, response)
         return
 
