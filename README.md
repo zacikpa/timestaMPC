@@ -31,6 +31,7 @@ file `signer0.cfg` for one of the signers may look as follows:
 "index": 0,
 "context_path": "signer0",
 "private_rsa": "signer-key-0",
+"manager_public_key_path": "manager-key.pub",
 "pub_keys_paths": ["signer-key-0.pub", "signer-key-1.pub", "signer-key-2.pub"],
 "symm_keys_folder": "symm_keys",
 "host": "127.0.0.1",

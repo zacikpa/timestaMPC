@@ -294,7 +294,7 @@ pub fn process_request(
             let public_rsa = public_rsa.unwrap();
             // encrypt the symm key and challenge
             let mut msg = symm_key.to_vec();
-            msg.append(&mut challenge);
+            msg.append(&mut challenge[0..r.unwrap()].to_vec());
             let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
             if public_rsa.public_encrypt(&msg, &mut encrypted, Padding::PKCS1).is_err() {
                 return ABORT
@@ -310,7 +310,7 @@ pub fn process_request(
         }
         (Context::Keys1(manager_symm), RequestType::SymmetricKeySend) => {
             let _ = fs::create_dir_all(&config.symm_keys_folder);
-            if fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &manager_symm[..32]).is_err() {
+            if fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &manager_symm).is_err() {
                 return ABORT
             }
 
@@ -390,7 +390,8 @@ pub fn process_request(
                     // append it
                     response.push(encrypted.to_vec());
 
-                } else {
+                }
+                if i > config.index {
                     response.push(Vec::new());
                 }
 
@@ -422,13 +423,10 @@ pub fn process_request(
                 if challenges[i as usize] != data[32..r.unwrap()].to_vec() {
                     return ABORT
                 }
-
                 // save key
                 if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &data[0..32]).is_err(){
                     return ABORT
                 }
-
-
             }
             (
                 Context::Empty,
