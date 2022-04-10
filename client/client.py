@@ -187,11 +187,18 @@ def main():
 
     if args.command == "sign":
         client = TMPCClient(SERVER_HOST, SERVER_PORT)
-        asyncio.run(sign_document(client, args.document_file))
+        try:
+            asyncio.run(sign_document(client, args.document_file))
+        except OSError:
+            print("could not connect to the server")
         return
 
     if args.command == "verify":
-        response = json.load(sys.stdin)
+        try:
+            response = json.load(sys.stdin)
+        except json.JSONDecodeError:
+            print("the response does not contain valid JSON data")
+            return
         verify_signature(args.document_file, response)
         return
 
