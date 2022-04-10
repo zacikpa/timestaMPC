@@ -183,6 +183,9 @@ pub fn decrypt_request( enc_request: &[u8], config: &Config ) -> Vec<u8> {
 
     let cipher = Cipher::aes_256_cbc();
     let request = decrypt(cipher, &symm.unwrap(), Some(&enc_request[0..16]), &enc_request[16..]);
+    if request.is_err() {
+        return enc_request.to_vec();
+    }
     request.unwrap()
 }
 

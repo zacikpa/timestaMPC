@@ -281,6 +281,12 @@ async def sign_data(data: str):
         response["timestamp"] = timestamp
     return json.dumps(response)
 
+async def abort_everything(self):
+    for signer in self.signer_instances:
+        payload = build_payload("Abort", [])
+        await signer.send(payload)
+        await signer.recv(self.buffer_size)
+
 
 async def handle_command(data) -> str:
     match data["command"]:
@@ -314,9 +320,9 @@ async def signer_manager(manager: SignerManager):
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
 
-    await manager.distribute_symmetric_key()
 
     try:
+        await manager.distribute_symmetric_key()
         contexts = await manager.key_generation()
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
@@ -327,42 +333,51 @@ async def signer_manager(manager: SignerManager):
     print(contexts)
     print("signers inited")
     while True:
-        hash, timestamp = await REQUEST_QUEUE.get()
-        print(hash, timestamp)
-        await manager.get_active_signers()
-        if len(manager.active_signers) < manager.threshold:
+        try:
+            hash, timestamp = await REQUEST_QUEUE.get()
+            print(hash, timestamp)
+            await manager.get_active_signers()
+            if len(manager.active_signers) < manager.threshold:
+                response = {
+                    "status": "failure",
+                    "reason": "unable to connect to enough signing servers"
+                }
+                await RESPONSE_QUEUE.put(response)
+                for signer in manager.signer_instances:
+                    if signer.index in manager.active_signers:
+                        await signer.send(build_payload("Abort", []))
+                        await signer.recv(manager.buffer_size)
+                continue
+            try:
+                await manager.mp_sign_init(hash, timestamp)
+                signatures = await manager.mp_sign()
+            except (RuntimeError, json.JSONDecodeError) as err:
+                print(str(err))
+                response = {
+                    "status": "failure",
+                    "reason": "communication with signers failed"
+                }
+                await RESPONSE_QUEUE.put(response)
+                continue
+            print("Signing complete, signatures:", signatures)
             response = {
-                "status": "failure",
-                "reason": "unable to connect to enough signing servers"
+                "status": "success",
+                "signature": signatures[0],
+                "certificate": manager.certificate.public_bytes(serialization.Encoding.PEM).decode()
             }
             await RESPONSE_QUEUE.put(response)
-            for signer in manager.signer_instances:
-                if signer.index in manager.active_signers:
-                    await signer.send(build_payload("Abort", []))
-                    await signer.recv(manager.buffer_size)
-            continue
-        try:
-            await manager.mp_sign_init(hash, timestamp)
-            signatures = await manager.mp_sign()
-        except (RuntimeError, json.JSONDecodeError) as err:
+
+            if manager.do_2p:
+                await manager.refresh_2p()
+                
+        except Exception as err:
             print(str(err))
             response = {
                 "status": "failure",
-                "reason": "communication with signers failed"
+                "reason": "Unknown error happened in signing:"
             }
             await RESPONSE_QUEUE.put(response)
-            continue
-        print("Signing complete, signatures:", signatures)
-        response = {
-            "status": "success",
-            "signature": signatures[0],
-            "certificate": manager.certificate.public_bytes(serialization.Encoding.PEM).decode()
-        }
-        await RESPONSE_QUEUE.put(response)
-
-        if manager.do_2p:
-            await manager.refresh_2p()
-
+            await manager.abort_everything()
 
 def main():
     if len(sys.argv) != 2:
