@@ -35,6 +35,7 @@ pub struct Config {
     pub index: u16,
     pub context_path: String,
     pub private_rsa: String,
+    pub manager_public_key_path: String,
     pub pub_keys_paths: Vec<String>,
     pub symm_keys_folder: String,
     pub host: String,
@@ -88,7 +89,9 @@ pub struct ResponseWithBytes {
 
 pub enum Context {
     Empty,
-    WaitingForKeys,
+    Keys1(Vec<u8>),
+    Keys2(Vec<Vec<u8>>),
+    Keys3(Vec<Vec<u8>>),
     GenContext1(GG18KeyGenContext1),
     GenContext2(GG18KeyGenContext2),
     GenContext3(GG18KeyGenContext3),
@@ -261,25 +264,118 @@ pub fn process_request(
     let request_data = request_data.unwrap();
     match (context, request.request_type) {
         (Context::Empty, RequestType::SymmetricKeySend) => {
+            if request_data.is_empty() {
+                return ABORT
+            }
             // load private RSA key
             let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
             let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
-            let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
+            let mut challenge: Vec<u8> = vec![0; private_rsa.size() as usize];
             // decrypt symmetric key shared with manager server
-            let r = private_rsa.private_decrypt(&request_data[0], &mut symm_key, Padding::PKCS1);
+            let r = private_rsa.private_decrypt(&request_data[0], &mut challenge, Padding::PKCS1);
 
-            fs::create_dir_all(&config.symm_keys_folder);
-            if r.is_err() || fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &symm_key[..32]).is_err() {
+            let mut symm_key = [0; 32];
+            // generate random key
+            let r2 = rand_bytes(&mut symm_key);
+
+            if r.is_err() || r2.is_err() {
                 return ABORT
             }
-            // generate symmetric keys shared with other signers
-            let mut signers_symm_keys: Vec<Vec<u8>> = Vec::new();
+
+            // load manager's RSA public key
+            let pub_rsa = fs::read(&config.manager_public_key_path);
+            if pub_rsa.is_err() {
+                return ABORT
+            }
+            let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa.unwrap());
+            if public_rsa.is_err() {
+                return ABORT
+            }
+            let public_rsa = public_rsa.unwrap();
+            // encrypt the symm key and challenge
+            let mut msg = symm_key.to_vec();
+            msg.append(&mut challenge[0..r.unwrap()].to_vec());
+            let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
+            if public_rsa.public_encrypt(&msg, &mut encrypted, Padding::PKCS1).is_err() {
+                return ABORT
+            }
+
+            (
+                Context::Keys1(symm_key.to_vec()),
+                ResponseWithBytes {
+                    response_type: ResponseType::SymmetricKeySend,
+                    data: vec!(encrypted),
+                },
+            )
+        }
+        (Context::Keys1(manager_symm), RequestType::SymmetricKeySend) => {
+            let _ = fs::create_dir_all(&config.symm_keys_folder);
+            if fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &manager_symm).is_err() {
+                return ABORT
+            }
+
+            let mut messages: Vec<Vec<u8>> = Vec::new();
+            let mut challenges: Vec<Vec<u8>> = Vec::new();
             for i in 0..config.num_parties {
-                // generate keys for parties with higher index
+                // generate challenges for parties with higher index
                 if i > config.index {
+                    let mut challenge = [0; 32];
+                    // generate challenge
+                    if rand_bytes(&mut challenge).is_err(){
+                        return ABORT
+                    }
+                    challenges.push(challenge.to_vec());
+
+                    // load RSA public key for corresponding party
+                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
+                    let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
+                    // encrypt the challenge
+                    let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
+                    if public_rsa.public_encrypt(&challenge, &mut encrypted, Padding::PKCS1).is_err(){
+                        return ABORT
+                    }
+                    // append it
+                    messages.push(encrypted.to_vec());
+                }
+                // parties with lower index will send challenges to you
+                if i < config.index {
+                    messages.push(Vec::new());
+                    challenges.push(Vec::new());
+                }
+            }
+
+            (
+                Context::Keys2(challenges.clone()),
+                ResponseWithBytes {
+                    response_type: ResponseType::SymmetricKeySend,
+                    data: messages,
+                },
+            )
+        }
+        (Context::Keys2(challenges), RequestType::SymmetricKeySend) => {
+            if request_data.len() < config.index as usize {
+                return ABORT
+            }
+            // decrypt challenges from signers
+            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
+            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
+
+            let mut response : Vec<Vec<u8>> = Vec::new();
+
+            for i in 0..config.num_parties {
+                if i < config.index {
+                    let mut challenge: Vec<u8> = vec![0; private_rsa.size() as usize];
+                    let r = private_rsa.private_decrypt(&request_data[i as usize], &mut challenge, Padding::PKCS1);
+
+                    if r.is_err() {
+                        return ABORT
+                    }
+
                     let mut symm_key = [0; 32];
                     // generate random key
-                    rand_bytes(&mut symm_key).unwrap();
+                    if rand_bytes(&mut symm_key).is_err(){
+                        return ABORT
+                    }
                     // save it
                     if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), symm_key).is_err(){
                         return ABORT
@@ -287,58 +383,61 @@ pub fn process_request(
                     // load RSA public key for corresponding party
                     let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
                     let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
-                    // encrypt the symm key
+                    // encrypt the symm key and challenge
+                    let mut msg = symm_key.to_vec();
+                    msg.append(&mut challenge[0..r.unwrap()].to_vec());
                     let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
-                    let _ = public_rsa.public_encrypt(&symm_key, &mut encrypted, Padding::PKCS1).unwrap();
+                    if public_rsa.public_encrypt(&msg, &mut encrypted, Padding::PKCS1).is_err(){
+                        return ABORT
+                    }
                     // append it
-                    signers_symm_keys.push(encrypted.to_vec());
+                    response.push(encrypted.to_vec());
+
                 }
-                // parties with lower index will send key to you
-                if i < config.index {
-                    signers_symm_keys.push(Vec::new());
+                if i > config.index {
+                    response.push(Vec::new());
                 }
+
             }
             (
-                Context::WaitingForKeys,
+                Context::Keys3(challenges.clone()),
                 ResponseWithBytes {
                     response_type: ResponseType::SymmetricKeySend,
-                    data: signers_symm_keys,
+                    data: response,
                 },
             )
         }
-        (Context::WaitingForKeys, RequestType::SymmetricKeySend) => {
-            if request_data.len() < config.index as usize {
-                return (
-                    Context::WaitingForKeys,
-                    ResponseWithBytes {
-                        response_type: ResponseType::Abort,
-                        data: Vec::new(),
-                    },
-                )
+        (Context::Keys3(challenges), RequestType::SymmetricKeySend) => {
+
+            if request_data.len() < (config.num_parties as usize - 1) {
+                return ABORT
             }
-            // decrypt symmetric keys from signers
+
             let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
             let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
 
-            for i in 0..config.index {
-                let mut symm_key: Vec<u8> = vec![0; private_rsa.size() as usize];
-                let r = private_rsa.private_decrypt(&request_data[i as usize], &mut symm_key, Padding::PKCS1);
-
-                if r.is_err() || fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &symm_key[..32]).is_err() {
-                    return (
-                        Context::WaitingForKeys,
-                        ResponseWithBytes {
-                            response_type: ResponseType::Abort,
-                            data: Vec::new(),
-                        },
-                    )
+            for i in (config.index + 1)..config.num_parties {
+                let mut data: Vec<u8> = vec![0; private_rsa.size() as usize];
+                let r = private_rsa.private_decrypt(&request_data[(i - 1) as usize], &mut data, Padding::PKCS1);
+                if r.is_err() {
+                    println!("ABORT decrypt failed");
+                    return ABORT
+                }
+                if challenges[(i - 1) as usize] != data[32..r.unwrap()].to_vec() {
+                    println!("ABORT bad challenge");
+                    return ABORT
+                }
+                // save key
+                if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &data[0..32]).is_err(){
+                    println!("ABORT write");
+                    return ABORT
                 }
             }
-            return (
+            (
                 Context::Empty,
                 ResponseWithBytes {
                     response_type: ResponseType::SymmetricKeySend,
-                    data: Vec::new(),
+                    data: vec!(Vec::new())
                 },
             )
         }
