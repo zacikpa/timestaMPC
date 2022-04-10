@@ -311,6 +311,7 @@ async def signer_manager(manager: SignerManager, pubkey_directory: str):
             for signer in manager.signer_instances:
                 if signer.index in manager.active_signers:
                     await signer.send(build_payload("Abort", []))
+                    await signer.recv(manager.buffer_size)
             continue
         try:
             await manager.mp_sign_init(hash, timestamp)

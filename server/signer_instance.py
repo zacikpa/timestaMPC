@@ -67,8 +67,14 @@ class SignerInstance:
             try:
                 data = self.decrypt(data)
             except ValueError:
-                data = b""
-        return data.decode()
+                return ""
+
+        try:
+            decoded = data.decode()
+        except UnicodeDecodeError:
+            return ""
+
+        return decoded
 
     def is_connected(self):
         return self.connected
