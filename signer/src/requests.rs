@@ -32,18 +32,23 @@ use openssl::symm::{encrypt, Cipher, decrypt};
 use openssl::error::ErrorStack;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Signer {
+    pub index: u16,
+    pub public_key: String
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub index: u16,
-    pub context_path: String,
-    pub private_rsa: String,
-    pub manager_public_key_path: String,
-    pub pub_keys_paths: Vec<String>,
-    pub symm_keys_folder: String,
     pub host: String,
     pub port: u16,
     pub num_parties: u16,
     pub threshold: u16,
     pub acceptable_seconds: i64,
+    pub private_key: String,
+    pub signers: Vec<Signer>,
+    pub manager_public_key: String,
+    pub data_folder: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy)]
@@ -55,6 +60,7 @@ enum RequestType {
     Sign,
     GenerateKey2p,
     Refresh2p,
+    InitSign2p,
     Sign2p,
     Abort,
 }
@@ -74,6 +80,7 @@ pub enum ResponseType {
     Sign,
     GenerateKey2p,
     Refresh2p,
+    InitSign2p,
     Sign2p,
     Abort,
 }
@@ -113,6 +120,7 @@ pub enum Context {
     Gen2pContext1(Li17KeyGenContext1),
     Gen2pContext2(Li17KeyGenContext2),
     Gen2pContext3(Li17KeyGenContext3),
+    Sign2pContext0,
     Sign2pContext1(Li17SignContext1),
     Sign2pContext2(Li17SignContext2),
     Sign2pContext3(Li17SignContext3),
@@ -182,7 +190,7 @@ pub fn encrypt_payload( response: (Context, ResponseWithBytes), config: &Config,
             j += 1;
             continue;
         }
-        let key = fs::read(&format!("{}/symm{}_{}", config.symm_keys_folder, config.index, parties[i]));
+        let key = fs::read(&format!("{}/sym-signer{}-signer{}", config.data_folder, config.index, parties[i]));
         if key.is_err() || data[j].len() < 16 {
             return ABORT
         }
@@ -214,7 +222,7 @@ pub fn decrypt_payload( data: Vec<Vec<u8>>, config: &Config, parties: Vec<u16>) 
             j += 1;
             continue;
         }
-        let key = fs::read(&format!("{}/symm{}_{}", config.symm_keys_folder, config.index, parties[i]));
+        let key = fs::read(&format!("{}/sym-signer{}-signer{}", config.data_folder, config.index, parties[i]));
         if key.is_err() || data[j].len() < 16 {
             return Err("invalid encrypted data")
         }
@@ -252,7 +260,7 @@ pub fn process_request(
             }
             println!("Symmetric keys establishment started...");
             // load private RSA key
-            let pem = fs::read_to_string(&config.private_rsa);
+            let pem = fs::read_to_string(&config.private_key);
             if pem.is_err() {
                 panic!("Failed to read private RSA key.");
             }
@@ -276,7 +284,7 @@ pub fn process_request(
             }
 
             // load manager's RSA public key
-            let pub_rsa = fs::read(&config.manager_public_key_path);
+            let pub_rsa = fs::read(&config.manager_public_key);
             if pub_rsa.is_err() {
                 panic!("Failed to read manager's public key.");
             }
@@ -302,8 +310,8 @@ pub fn process_request(
             )
         }
         (Context::Keys1(manager_symm), RequestType::SymmetricKeySendPlain) => {
-            let _ = fs::create_dir_all(&config.symm_keys_folder);
-            if fs::write(format!("{}/symm{}_manager", config.symm_keys_folder, config.index), &manager_symm).is_err() {
+            let _ = fs::create_dir_all(&config.data_folder);
+            if fs::write(format!("{}/sym-signer{}-manager", config.data_folder, config.index), &manager_symm).is_err() {
                 return ABORT
             }
 
@@ -320,7 +328,8 @@ pub fn process_request(
                     challenges.push(challenge.to_vec());
 
                     // load RSA public key for corresponding party
-                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
+                    let signer = config.signers.iter().find(|&x| x.index == i).unwrap();
+                    let pub_rsa = fs::read(&signer.public_key).unwrap();
                     let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
                     // encrypt the challenge
                     let mut encrypted: Vec<u8> = vec![0; public_rsa.size() as usize];
@@ -351,7 +360,7 @@ pub fn process_request(
             }
             // decrypt challenges from signers
 
-            let pem = fs::read_to_string(&config.private_rsa);
+            let pem = fs::read_to_string(&config.private_key);
             if pem.is_err() {
                 panic!("Failed to read private RSA key.");
             }
@@ -379,11 +388,12 @@ pub fn process_request(
                         return ABORT
                     }
                     // save it
-                    if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), symm_key).is_err(){
+                    if fs::write(format!("{}/sym-signer{}-signer{}", config.data_folder, config.index, i), symm_key).is_err(){
                         return ABORT
                     }
                     // load RSA public key for corresponding party
-                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]);
+                    let signer = config.signers.iter().find(|&x| x.index == i).unwrap();
+                    let pub_rsa = fs::read(&signer.public_key);
                     if pub_rsa.is_err(){
                         panic!("Failed to read public key of party {}", i);
                     }
@@ -422,7 +432,7 @@ pub fn process_request(
                 return ABORT
             }
 
-            let pem = fs::read_to_string(&config.private_rsa);
+            let pem = fs::read_to_string(&config.private_key);
             if pem.is_err() {
                 panic!("Failed to read private RSA key.");
             }
@@ -445,7 +455,7 @@ pub fn process_request(
                     return ABORT
                 }
                 // save key
-                if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &data[0..32]).is_err(){
+                if fs::write(format!("{}/sym-signer{}-signer{}", config.data_folder, config.index, i), &data[0..32]).is_err(){
                     eprintln!("ABORT write");
                     return ABORT
                 }
@@ -465,7 +475,7 @@ pub fn process_request(
         }
 
         (Context::Empty, RequestType::InitSign) => {
-            let data = fs::read_to_string(&config.context_path);
+            let data = fs::read_to_string(format!("{}/signer{}.ctx", config.data_folder, config.index));
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
                 return ABORT
@@ -508,7 +518,7 @@ pub fn process_request(
                 let c = c.unwrap();
                 let serde = serde_json::to_string(&c);
                 if serde.is_ok() {
-                    if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                    if fs::write(format!("{}/signer{}.ctx", config.data_folder, config.index), serde.unwrap()).is_ok() {
                         println!("Key generation finished.");
                         return (
                             Context::Empty,
@@ -619,7 +629,7 @@ pub fn process_request(
                 let c = c.unwrap();
                 let serde = serde_json::to_string(&c);
                 if serde.is_ok() {
-                    if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                    if fs::write(format!("{}/signer{}.ctx", config.data_folder, config.index), serde.unwrap()).is_ok() {
                         println!("Key generation finished.");
                         return (
                             Context::Empty,
@@ -634,8 +644,23 @@ pub fn process_request(
             ABORT
         }
 
-        (Context::Empty, RequestType::Sign2p) => {
-            let data = fs::read_to_string(&config.context_path);
+        (Context::Empty, RequestType::InitSign2p) => {
+            let data = fs::read_to_string(format!("{}/signer{}.ctx", config.data_folder, config.index));
+            if data.is_err() {
+                eprintln!("Failed to load setup file.");
+                return ABORT
+            }
+            (
+                Context::Sign2pContext0,
+                ResponseWithBytes {
+                    response_type: ResponseType::InitSign2p,
+                    data: Vec::new(),
+                },
+            )
+        }
+
+        (Context::Sign2pContext0, RequestType::Sign2p) => {
+            let data = fs::read_to_string(format!("{}/signer{}.ctx", config.data_folder, config.index));
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
                 return ABORT
@@ -692,7 +717,7 @@ pub fn process_request(
         },
 
         (Context::Empty, RequestType::Refresh2p) => {
-            let data = fs::read_to_string(&config.context_path);
+            let data = fs::read_to_string(format!("{}/signer{}.ctx", config.data_folder, config.index));
             if data.is_err() {
                 eprintln!("Failed to load setup file.");
                 return ABORT
@@ -742,7 +767,7 @@ pub fn process_request(
         (Context::Refresh2pContext4(context), RequestType::Refresh2p) => {
             let serde = serde_json::to_string(context);
             if serde.is_ok() {
-                if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                if fs::write(format!("{}/signer{}.ctx", config.data_folder, config.index), serde.unwrap()).is_ok() {
                     println!("Key refresh finished.");
                     return (
                         Context::Empty,

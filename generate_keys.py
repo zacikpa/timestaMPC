@@ -19,35 +19,37 @@ def generate_private_key(filename: str, size: int):
             encryption_algorithm=serialization.NoEncryption()
         )
         f.write(pem)
-        
+
     public_key = private_key.public_key()
-    with open(f'{filename}.pub', "wb") as f:
+    with open(f"{filename}.pub", "wb") as f:
         pem = public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.PKCS1,
         )
         f.write(pem)
-        
+
     return public_key
 
+
 def generate_keys(num_parties, prefix):
-    
     os.makedirs(prefix, exist_ok=True)
     for party in range(num_parties):
-        generate_private_key(f'{prefix}/signer-key-{party}', 4096)
-    generate_private_key(f'{prefix}/manager-key', 4096)
-        
-        
+        generate_private_key(f"{prefix}/signer{party}-key", 4096)
+    generate_private_key(f"{prefix}/manager-key", 4096)
+
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage:", sys.argv[0], "CONFIG_FILE")
+    if len(sys.argv) != 3:
+        print("Usage:", sys.argv[0], "SERVER_CONFIG_FILE SETUP_FOLDER")
+        return
     config_filename = sys.argv[1]
+    setup_folder = sys.argv[2]
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
-        
+
     num_parties = config["num_parties"]
-    generate_keys(num_parties, 'server-signer')
-        
-if __name__ == '__main__':
+    generate_keys(num_parties, setup_folder)
+
+
+if __name__ == "__main__":
     main()

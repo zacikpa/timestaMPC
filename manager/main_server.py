@@ -5,7 +5,6 @@ import json
 import secrets
 import sys
 import ca
-import glob
 from base64 import b64encode, b64decode
 from datetime import datetime
 from typing import Dict, List
@@ -25,7 +24,7 @@ class SignerManager:
         self.num_parties: int = config.get("num_parties")
         self.threshold: int = config.get("threshold")
         self.refresh: bool = config.get("refresh")
-        self.manager_key_path: str = config.get("manager_key")
+        self.manager_key_path: str = config.get("private_key")
         if self.refresh and (self.num_parties != 2):
             raise RuntimeError("For refresh to work there must be exactly 2 parties (2-of-2).")
 
@@ -45,16 +44,14 @@ class SignerManager:
                 return False
         return True
 
-
     def load_keyfiles(self):
         for signer in self.signers:
-            with open(signer["key"], "rb") as key_file:
+            with open(signer["public_key"], "rb") as key_file:
                 self.signer_public_keys.append(
                     serialization.load_pem_public_key(key_file.read())
                     )
         with open(self.manager_key_path, 'rb') as f:
             self.manager_key = serialization.load_pem_private_key(f.read(), None)
-
 
     async def distribute_symmetric_key(self):
         recv_messages = [None for _ in self.signers]
@@ -74,9 +71,7 @@ class SignerManager:
             response = self.manager_key.decrypt(response, padding.PKCS1v15())
             sym_key, resp = response[:32], response[32:]
             if resp != random_challenges[index]:
-                # TODO abort or sth
-                print("BAD BAD BAD CHALLENGE")
-                return
+                raise RuntimeError("Bad response to a challenge")
             self.signer_instances[index].symmetric_key = sym_key
 
         for signer in self.signer_instances:
@@ -92,8 +87,6 @@ class SignerManager:
         for signer in self.signer_instances:
             await signer.recv(BUFFER_SIZE_PER_PARTY)
 
-
-
     @staticmethod
     async def _distribute_data(messages, request_type, instances: List[SignerInstance]):
         for index, signer in enumerate(instances):
@@ -103,13 +96,11 @@ class SignerManager:
         for signer in self.signer_instances:
             await signer.send(build_payload(message, []))
 
-    async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance],  multiple: bool = False, skip_decrypt: bool = False) -> None:
+    async def _recv_to_array(self, array: List, expected_phase: str, instances: List[SignerInstance], multiple: bool = False, skip_decrypt: bool = False) -> None:
         for index, signer in enumerate(instances):
             recv = await signer.recv(self.buffer_size, skip_decrypt=skip_decrypt)
-            print(recv)
             recv_dct = json.loads(recv)
             if (recv_type := recv_dct.get("response_type")) != expected_phase:
-                print(recv_type)
                 raise RuntimeError("Wrong response type: " + recv_type + " != " + expected_phase)
 
             if not multiple:
@@ -146,7 +137,6 @@ class SignerManager:
         phase_enum = "GenerateKey2p" if self.do_2p else "GenerateKey"
 
         await self._init_keygen(phase_enum)
-        print(self.signer_instances, self.active_signers)
 
         for phase in range(5 if not self.do_2p else 3):
             recv_messages = [None for _ in self.signers]
@@ -166,20 +156,14 @@ class SignerManager:
     async def _get_signer(self, index):
         signer = self.signer_instances[index]
         response = await signer.recv(self.buffer_size)
-        print(f'for index {index} response {response}')
         return index, response
 
-    async def get_active_signers(self) -> None:
-        if self.do_2p:
-            self.active_signers = [0, 1]
-            return
-
+    async def get_active_signers(self, phase_enum) -> None:
         current_missing = self.threshold
         for signer in self.signer_instances:
             if not signer.is_connected():
-                print("Trying to reconnect to {}".format(signer.index))
                 await signer.connect()
-            await signer.send(build_payload("InitSign", []))
+            await signer.send(build_payload(phase_enum, []))
 
         active_signers = []
 
@@ -188,7 +172,6 @@ class SignerManager:
             if current_missing > 0 and len(response) != 0:
                 current_missing -= 1
                 active_signers.append(index)
-                print(active_signers, current_missing)
 
         self.active_signers = active_signers
 
@@ -196,7 +179,6 @@ class SignerManager:
         phase_enum = "Refresh2p"
 
         await self._init_keygen(phase_enum)
-        print(self.signer_instances, self.active_signers)
 
         for _ in range(4):
             recv_messages = [None for _ in self.signers]
@@ -212,7 +194,6 @@ class SignerManager:
         return key_gen_sign_contexts
 
     async def mp_sign_init(self, hash, timestamp):
-        print("Active signers", self.active_signers)
         for index in self.active_signers:
             signer = self.signer_instances[index]
 
@@ -220,10 +201,6 @@ class SignerManager:
                 payload = build_payload("Sign2p", [hash, b64encode(timestamp).decode()])
             else:
                 payload = build_payload("Sign", [b64encode(bytes(self.active_signers)).decode(), hash, b64encode(timestamp).decode()])
-
-            print(payload)
-            dump = json.dumps(payload).encode('utf-8')
-            print(dump)
             await signer.send(payload)
 
         if self.do_2p:
@@ -234,8 +211,6 @@ class SignerManager:
             if index in self.active_signers:
                 continue
             payload = build_payload("Abort", [])
-            dump = json.dumps(payload).encode('utf-8')
-            print(dump)
             await signer.send(payload)
             await signer.recv(self.buffer_size)
 
@@ -254,7 +229,6 @@ class SignerManager:
 
         signatures = [None for _ in range(self.threshold)]
         await self._recv_to_array(signatures, "Sign" if not self.do_2p else "Sign2p", active_signer_instances)
-        print("Signing done")
         return signatures
 
 
@@ -267,13 +241,12 @@ def build_payload(request_type: str, data: List):
 
 async def sign_data(data: str):
     timestamp = str(int(datetime.now().timestamp()))
-    print("GOT DATA:", data)
     await REQUEST_QUEUE.put((data, timestamp.encode("utf-8")))
-    print("put into queue")
     response = await RESPONSE_QUEUE.get()
     if response["status"] == "success":
         response["timestamp"] = timestamp
     return json.dumps(response)
+
 
 async def abort_everything(self):
     for signer in self.signer_instances:
@@ -314,23 +287,23 @@ async def signer_manager(manager: SignerManager):
     if not (await manager.spawn_instances()):
         exit("Error: could not connect to all signers")
 
-
     try:
+        print("Symmetric key establishment started...")
         await manager.distribute_symmetric_key()
+        print("Symmetric key establishment finished...")
+        print("Key generation started...")
         contexts = await manager.key_generation()
+        print("Key generation finished.")
     except (RuntimeError, json.JSONDecodeError) as err:
         print(str(err))
         exit("Error: communication with signers failed during key generation")
-    print("Key point", b64decode(contexts[0].encode()).hex())
     public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256K1(), b64decode(contexts[0].encode()))
     manager.certificate = ca.issue_cert("TimestaMPC", public_key)
-    print(contexts)
-    print("signers inited")
     while True:
         try:
             hash, timestamp = await REQUEST_QUEUE.get()
-            print(hash, timestamp)
-            await manager.get_active_signers()
+            print("Signing started...")
+            await manager.get_active_signers("InitSign2p" if manager.do_2p else "InitSign")
             if len(manager.active_signers) < manager.threshold:
                 response = {
                     "status": "failure",
@@ -353,7 +326,7 @@ async def signer_manager(manager: SignerManager):
                 }
                 await RESPONSE_QUEUE.put(response)
                 continue
-            print("Signing complete, signatures:", signatures)
+            print("Signing finished.")
             response = {
                 "status": "success",
                 "signature": signatures[0],
@@ -373,6 +346,7 @@ async def signer_manager(manager: SignerManager):
             await RESPONSE_QUEUE.put(response)
             await manager.abort_everything()
 
+
 def main():
     if len(sys.argv) != 2:
         print("Usage:", sys.argv[0], "CONFIG_FILE")
@@ -381,6 +355,9 @@ def main():
     config_filename = sys.argv[1]
     with open(config_filename, "r") as config_file:
         config = json.load(config_file)
+
+    print(json.dumps(config, indent=2))
+
     manager = SignerManager(config)
 
     loop = asyncio.new_event_loop()

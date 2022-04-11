@@ -45,13 +45,13 @@ fn main() {
     let config_reader = BufReader::new(config_file);
     let config: Config = match serde_json::from_reader(config_reader) {
         Ok(config) => config,
-        Err(_e) => {
-            eprintln!("Failed to parse config file.");
+        Err(e) => {
+            eprintln!("Failed to parse config file. {}", e);
             return
         }
     };
 
-    println!("{:?}", config);
+    println!("{}", serde_json::to_string_pretty(&config).unwrap());
     // Create an empty signer context
     let mut context = Context::Empty;
     let mut response: ResponseWithBytes;
@@ -89,7 +89,7 @@ fn main() {
                     }
 
                     // Probably encrypted, try to load the symmetric key and decrypt
-                    let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
+                    let symm = fs::read(&format!("{}/sym-signer{}-manager", config.data_folder, config.index));
 
                     if !symm.is_err() && size % 16 == 0 && size >= 32 {
                         let decrypted = decrypt_request(&symm.unwrap(), &request_buffer[..size]);
@@ -144,7 +144,7 @@ fn main() {
                 };
 
                 let to_send: Vec<u8>;
-                let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
+                let symm = fs::read(&format!("{}/sym-signer{}-manager", config.data_folder, config.index));
                 if symm.is_err() || response.response_type == ResponseType::SymmetricKeySendPlain {
                     to_send = json_response;
                 } else {
