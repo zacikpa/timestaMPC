@@ -170,6 +170,10 @@ class SignerManager:
         return index, response
 
     async def get_active_signers(self) -> None:
+        if self.do_2p:
+            self.active_signers = [0, 1]
+            return
+
         current_missing = self.threshold
         for signer in self.signer_instances:
             if not signer.is_connected():
