@@ -31,9 +31,9 @@ cargo build --release
 ## Setup
 We assume that the signers and the manager are able to exchange their public
 keys in advance, via a secure channel. For testing purposes on a single machine,
-you can use the `generate_key.py` script:
+you can use the `generate_keys.py` script:
 ```bash
-python generate.py 3 setup
+python generate_keys.py 3 setup
 ```
 This will generate asymmetric key pairs for 3-party ECDSA and store them in
 the `setup` directory.
