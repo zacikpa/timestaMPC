@@ -230,6 +230,12 @@ class SignerManager:
         signatures = [None for _ in range(self.threshold)]
         await self._recv_to_array(signatures, "Sign" if not self.do_2p else "Sign2p", active_signer_instances)
         return signatures
+    
+    async def abort_everything(self):
+        for signer in self.signer_instances:
+            payload = build_payload("Abort", [])
+            await signer.send(payload)
+            await signer.recv(self.buffer_size)
 
 
 def build_payload(request_type: str, data: List):
@@ -246,13 +252,6 @@ async def sign_data(data: str):
     if response["status"] == "success":
         response["timestamp"] = timestamp
     return json.dumps(response)
-
-
-async def abort_everything(self):
-    for signer in self.signer_instances:
-        payload = build_payload("Abort", [])
-        await signer.send(payload)
-        await signer.recv(self.buffer_size)
 
 
 async def handle_command(data) -> str:
