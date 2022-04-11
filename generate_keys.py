@@ -40,14 +40,10 @@ def generate_keys(num_parties, prefix):
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage:", sys.argv[0], "SERVER_CONFIG_FILE SETUP_FOLDER")
+        print("Usage:", sys.argv[0], "NUM_PARTIES SETUP_FOLDER")
         return
-    config_filename = sys.argv[1]
+    num_parties = int(sys.argv[1])
     setup_folder = sys.argv[2]
-    with open(config_filename, "r") as config_file:
-        config = json.load(config_file)
-
-    num_parties = config["num_parties"]
     generate_keys(num_parties, setup_folder)
 
 
