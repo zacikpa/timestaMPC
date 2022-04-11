@@ -46,17 +46,17 @@ For instance, to set up 2-out-of-2 ECDSA timestamping with key refresh, we would
 use the following configuration file `manager.cfg` for the manager:
 ```json
 {
-	"num_parties": 2,
-	"threshold": 2,
-	"host": "127.0.0.1",
-	"port": 15555,
-	"refresh": true,
-	"private_key": "setup/manager-key",
-	"signers":
-	[
-		{"index": 0, "host": "127.0.0.1", "port": 30000, "public_key": "setup/signer0-key.pub"},
-		{"index": 1, "host": "127.0.0.1", "port": 30001, "public_key": "setup/signer1-key.pub"}
-	]
+  "num_parties": 2,
+  "threshold": 2,
+  "host": "127.0.0.1",
+  "port": 15555,
+  "refresh": true,
+  "private_key": "setup/manager-key",
+  "signers":
+  [
+    {"index": 0, "host": "127.0.0.1", "port": 30000, "public_key": "setup/signer0-key.pub"},
+    {"index": 1, "host": "127.0.0.1", "port": 30001, "public_key": "setup/signer1-key.pub"}
+  ]
 }
 ```
 For the first signer, we would use the following configuration `signer0.cfg`:
