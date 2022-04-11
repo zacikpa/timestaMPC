@@ -743,7 +743,7 @@ pub fn process_request(
             let serde = serde_json::to_string(context);
             if serde.is_ok() {
                 if fs::write(&config.context_path, serde.unwrap()).is_ok() {
-                    println!("Key refresh finished...");
+                    println!("Key refresh finished.");
                     return (
                         Context::Empty,
                         ResponseWithBytes {
