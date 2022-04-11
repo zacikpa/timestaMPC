@@ -76,9 +76,8 @@ def hash_document(filename: str) -> str:
     return digest.finalize()
 
 
-async def sign_document(client: TMPCClient, filename: str) -> None:
+async def sign_document(client: TMPCClient, document_hash: str) -> None:
     await client.connect()
-    document_hash = b64encode(hash_document(filename)).decode()
     client.send_data(
         json.dumps(
             {
@@ -131,6 +130,13 @@ def verify_signature(document_filename: str, response) -> None:
     # We will need the CA public key to verify the received certificate
     ca_certificate = x509.load_pem_x509_certificate(CA_CERTIFICATE)
 
+    # The signature should be done on H(H(document) || timestamp)
+    try:
+        document_hash = hash_document(document_filename)
+    except OSError:
+        print("could not read the document")
+        return
+
     if "certificate" not in response:
         print("no certificate in the response")
         return
@@ -149,8 +155,6 @@ def verify_signature(document_filename: str, response) -> None:
         print("no timestamp in the response")
         return
 
-    # The signature should be done on H(H(document) || timestamp)
-    document_hash = hash_document(document_filename)
     data_to_verify = document_hash + response["timestamp"].encode()
 
     if "signature" not in response:
@@ -188,7 +192,12 @@ def main():
     if args.command == "sign":
         client = TMPCClient(SERVER_HOST, SERVER_PORT)
         try:
-            asyncio.run(sign_document(client, args.document_file))
+            document_hash = b64encode(hash_document(args.document_file)).decode()
+        except OSError:
+            print("could not read the document")
+            return
+        try:
+            asyncio.run(sign_document(client, document_hash))
         except OSError:
             print("could not connect to the server")
         return
