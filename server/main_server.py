@@ -56,16 +56,6 @@ class SignerManager:
             self.manager_key = serialization.load_pem_private_key(f.read(), None)
 
 
-    """
-    1) Manager pošle signerům zašifrovaná náhodná data (asi to může být vygenerované stejným způsobem jako symetrický klíč)
-    Signeři dešifrují, vygenerují symetrický klíč a pošlou zašifrovaný symetrický klíč || přijatá náhodná data
-    2) Manager dešifruje, porovná náhodná data a uloží si symetrický klíč. Pošle prázdnou zprávu zašifrovanou tím klíčem. (od teď už jsou zašifrované všechny zprávy)
-    Signeři pošlou zpátky asymetricky zašifrovaná nová náhodná data pro signery s vyšším indexem.
-    3) Manager přepošle data
-    Signeři dešifrují náhodná data a pošlou odpovídajícím signerům zašifrovaný symetrický klíč || data
-    4) Manager přepošle
-    Signeři přijmou, dešifrují, zkontrolují náhodná data, uloží si klíče, pošlou prázdnou odpověď.
-    """
     async def distribute_symmetric_key(self):
         recv_messages = [None for _ in self.signers]
         random_challenges = [secrets.token_bytes(32) for _ in self.signer_instances]
@@ -204,7 +194,7 @@ class SignerManager:
         await self._init_keygen(phase_enum)
         print(self.signer_instances, self.active_signers)
 
-        for _ in range(3):
+        for _ in range(4):
             recv_messages = [None for _ in self.signers]
 
             await self._recv_to_array(recv_messages, phase_enum, self.signer_instances)

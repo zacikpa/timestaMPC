@@ -35,8 +35,8 @@ fn main() {
     // Read the configuration file
     let config_file = match File::open(&config_filename) {
         Ok(file) => file,
-        Err(e) => {
-            eprintln!("Error: {}", e.to_string());
+        Err(_e) => {
+            eprintln!("Failed to open config file");
             return
         }
     };
@@ -45,8 +45,8 @@ fn main() {
     let config_reader = BufReader::new(config_file);
     let config: Config = match serde_json::from_reader(config_reader) {
         Ok(config) => config,
-        Err(e) => {
-            eprintln!("Error: {}", e.to_string());
+        Err(_e) => {
+            eprintln!("Failed to parse config file.");
             return
         }
     };
@@ -57,6 +57,7 @@ fn main() {
     let mut response: ResponseWithBytes;
 
     // Bind to the socket
+    println!("Connecting to the manager server on {}:{}", &config.host, &config.port);
     let listener = match TcpListener::bind((&config.host[..], config.port)) {
         Ok(listener) => listener,
         Err(e) => {
@@ -89,7 +90,7 @@ fn main() {
 
                     // Probably encrypted, try to load the symmetric key and decrypt
                     let symm = fs::read(&format!("{}/symm{}_manager", config.symm_keys_folder, config.index));
-                    println!("{:?}", size);
+
                     if !symm.is_err() && size % 16 == 0 && size >= 32 {
                         let decrypted = decrypt_request(&symm.unwrap(), &request_buffer[..size]);
                         if !decrypted.is_err() {
@@ -128,10 +129,10 @@ fn main() {
                 }
 
                 // Process the request and create a response
-                println!("Got request: {:?}", request);
+
                 (context, response) = process_request(&context, &config, request);
                 let response_b64 = response_bytes_to_b64(&response);
-                println!("Sending response: {:?}", &response_b64);
+
 
                 // Write back the response
                 let json_response = match serde_json::to_vec(&response_b64) {

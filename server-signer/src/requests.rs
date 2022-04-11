@@ -250,9 +250,19 @@ pub fn process_request(
             if request_data.is_empty() {
                 return ABORT
             }
+            println!("Symmetric keys establishment started...");
             // load private RSA key
-            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
-            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
+            let pem = fs::read_to_string(&config.private_rsa);
+            if pem.is_err() {
+                panic!("Failed to read private RSA key.");
+            }
+
+            let private_rsa = Rsa::private_key_from_pem(pem.unwrap().as_bytes());
+
+            if private_rsa.is_err() {
+                panic!("Invalid RSA key format");
+            }
+            let private_rsa = private_rsa.unwrap();
             let mut challenge: Vec<u8> = vec![0; private_rsa.size() as usize];
             // decrypt symmetric key shared with manager server
             let r = private_rsa.private_decrypt(&request_data[0], &mut challenge, Padding::PKCS1);
@@ -268,11 +278,11 @@ pub fn process_request(
             // load manager's RSA public key
             let pub_rsa = fs::read(&config.manager_public_key_path);
             if pub_rsa.is_err() {
-                return ABORT
+                panic!("Failed to read manager's public key.");
             }
             let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa.unwrap());
             if public_rsa.is_err() {
-                return ABORT
+                panic!("Invalid format of manager's public key.");
             }
             let public_rsa = public_rsa.unwrap();
             // encrypt the symm key and challenge
@@ -340,8 +350,17 @@ pub fn process_request(
                 return ABORT
             }
             // decrypt challenges from signers
-            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
-            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
+
+            let pem = fs::read_to_string(&config.private_rsa);
+            if pem.is_err() {
+                panic!("Failed to read private RSA key.");
+            }
+            let private_rsa = Rsa::private_key_from_pem(pem.unwrap().as_bytes());
+
+            if private_rsa.is_err() {
+                panic!("Invalid private RSA key format");
+            }
+            let private_rsa = private_rsa.unwrap();
 
             let mut response : Vec<Vec<u8>> = Vec::new();
 
@@ -364,8 +383,15 @@ pub fn process_request(
                         return ABORT
                     }
                     // load RSA public key for corresponding party
-                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]).unwrap();
-                    let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa).unwrap();
+                    let pub_rsa = fs::read(&config.pub_keys_paths[i as usize]);
+                    if pub_rsa.is_err(){
+                        panic!("Failed to read public key of party {}", i);
+                    }
+                    let public_rsa = Rsa::public_key_from_pem_pkcs1(&pub_rsa.unwrap());
+                    if public_rsa.is_err() {
+                        panic!("Invalid format of public key of party {}", i);
+                    }
+                    let public_rsa = public_rsa.unwrap();
                     // encrypt the symm key and challenge
                     let mut msg = symm_key.to_vec();
                     msg.append(&mut challenge[0..r.unwrap()].to_vec());
@@ -396,26 +422,35 @@ pub fn process_request(
                 return ABORT
             }
 
-            let pem : String = fs::read_to_string(&config.private_rsa).unwrap().parse().unwrap();
-            let private_rsa = Rsa::private_key_from_pem(pem.as_bytes()).unwrap();
+            let pem = fs::read_to_string(&config.private_rsa);
+            if pem.is_err() {
+                panic!("Failed to read private RSA key.");
+            }
+            let private_rsa = Rsa::private_key_from_pem(pem.unwrap().as_bytes());
+
+            if private_rsa.is_err() {
+                panic!("Invalid RSA key format");
+            }
+            let private_rsa = private_rsa.unwrap();
 
             for i in (config.index + 1)..config.num_parties {
                 let mut data: Vec<u8> = vec![0; private_rsa.size() as usize];
                 let r = private_rsa.private_decrypt(&request_data[(i - 1) as usize], &mut data, Padding::PKCS1);
                 if r.is_err() {
-                    println!("ABORT decrypt failed");
+                    eprintln!("ABORT decrypt failed");
                     return ABORT
                 }
                 if challenges[(i - 1) as usize] != data[32..r.unwrap()].to_vec() {
-                    println!("ABORT bad challenge");
+                    eprintln!("ABORT bad challenge");
                     return ABORT
                 }
                 // save key
                 if fs::write(format!("{}/symm{}_{}", config.symm_keys_folder, config.index, i), &data[0..32]).is_err(){
-                    println!("ABORT write");
+                    eprintln!("ABORT write");
                     return ABORT
                 }
             }
+            println!("Symmetric keys establishment finished.");
             (
                 Context::Empty,
                 ResponseWithBytes {
@@ -425,6 +460,7 @@ pub fn process_request(
             )
         }
         (Context::Empty, RequestType::GenerateKey) => {
+            println!("Key generation started...");
             gg18_key_gen_1(config.num_parties, config.threshold, config.index)
         }
 
@@ -473,6 +509,7 @@ pub fn process_request(
                 let serde = serde_json::to_string(&c);
                 if serde.is_ok() {
                     if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                        println!("Key generation finished.");
                         return (
                             Context::Empty,
                             ResponseWithBytes {
@@ -490,6 +527,7 @@ pub fn process_request(
             if request.data.len() < 3 || !check_time(config, request_data[2].clone()) {
                 return ABORT
             }
+            println!("Signing started...");
             let mut hasher = Sha256::new();
             hasher.update(request_data[1].clone());
             hasher.update(request_data[2].clone());
@@ -534,6 +572,7 @@ pub fn process_request(
             if s.is_err() {
                 return ABORT
             }
+            println!("Signing finished.");
             (
                 Context::Empty,
                 ResponseWithBytes {
@@ -547,6 +586,7 @@ pub fn process_request(
             if config.threshold != 2 || config.num_parties != 2 {
                 ABORT
             } else {
+                println!("Key generation started...");
                 encrypt_payload(li17_key_gen1(config.index), config, [0, 1].to_vec())
             }
         }
@@ -580,6 +620,7 @@ pub fn process_request(
                 let serde = serde_json::to_string(&c);
                 if serde.is_ok() {
                     if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                        println!("Key generation finished.");
                         return (
                             Context::Empty,
                             ResponseWithBytes {
@@ -607,6 +648,7 @@ pub fn process_request(
             if request.data.len() < 2 || !check_time(config, request_data[1].clone()) {
                 return ABORT
             }
+            println!("Signing started...");
             let mut hasher = Sha256::new();
             hasher.update(request_data[0].clone());
             hasher.update(request_data[1].clone());
@@ -639,6 +681,7 @@ pub fn process_request(
             if s.is_err() {
                 return ABORT
             }
+            println!("Signing finished.");
             (
                 Context::Empty,
                 ResponseWithBytes {
@@ -659,6 +702,7 @@ pub fn process_request(
                 eprintln!("Failed to parse setup file.");
                 return ABORT
             }
+            println!("Key refresh started...");
             encrypt_payload(li17_refresh1(context.unwrap()), config, [0, 1].to_vec())
         }
 
@@ -696,10 +740,10 @@ pub fn process_request(
             )
         }
         (Context::Refresh2pContext4(context), RequestType::Refresh2p) => {
-
             let serde = serde_json::to_string(context);
             if serde.is_ok() {
                 if fs::write(&config.context_path, serde.unwrap()).is_ok() {
+                    println!("Key refresh finished...");
                     return (
                         Context::Empty,
                         ResponseWithBytes {
