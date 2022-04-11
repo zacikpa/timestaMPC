@@ -4,3 +4,7 @@ venv
 server-signer/*.cfg
 server/*.cfg
 keys/
+
+__pycache__
+data/
+setup/
